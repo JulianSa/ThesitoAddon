@@ -46,7 +46,7 @@ local MATERIAL_USERS = {
 }
 
 local CLASS_CONSUMABLE, CLASS_CONTAINER, CLASS_WEAPON, CLASS_ARMOR = 0, 1, 2, 4
-local CLASS_TRADEGOODS, CLASS_RECIPE, CLASS_QUEST = 7, 9, 12
+local CLASS_TRADEGOODS, CLASS_RECIPE, CLASS_QUIVER, CLASS_QUEST = 7, 9, 11, 12
 local WEAPON_FISHING_POLE = 20 -- subclase de arma "caña de pescar"
 
 -- Herramientas de profesión: [itemID] = profesión (skillLine).
@@ -335,15 +335,101 @@ function B.SlotsForItemID(itemID)
     end
 end
 
--- Tamaño de tus bolsas puestas: { 16, 10, 8, 6, 0 } (0 = hueco sin bolsa).
+---------------------------------------------------------------------------
+-- Tipos de bolsa
+-- Además de las normales hay bolsas que solo guardan un tipo de cosa (de
+-- hierbas, de encantamiento, de almas...) y la bolsa de componentes, que va en
+-- la quinta casilla de bolsa y solo guarda materiales de profesión.
+---------------------------------------------------------------------------
+
+B.LAST_BAG = NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS or 4
+B.REAGENT_BAG = (NUM_BAG_SLOTS or 4) + 1
+local REAGENT_FAMILY = "componentes"
+
+-- Bolsas especiales que puedes encontrar (subclase de la clase 1).
+B.SPECIAL_BAGS = {
+    [1]  = { name = "bolsa de almas", holds = "fragmentos de alma", class = "WARLOCK" },
+    [2]  = { name = "bolsa de hierbas", holds = "hierbas", skill = 182 },
+    [3]  = { name = "bolsa de encantamiento", holds = "materiales de Encantamiento", skill = 333 },
+    [4]  = { name = "bolsa de ingeniería", holds = "piezas de Ingeniería", skill = 202 },
+    [5]  = { name = "bolsa de gemas", holds = "gemas", skill = 755 },
+    [6]  = { name = "bolsa de minería", holds = "minerales y piedras", skill = 186 },
+    [7]  = { name = "bolsa de peletería", holds = "cuero y pieles", skill = 165 },
+    [8]  = { name = "bolsa de inscripción", holds = "materiales de Inscripción", skill = 773 },
+    [9]  = { name = "caja de pesca", holds = "cosas de pesca", skill = 356 },
+    [10] = { name = "bolsa de cocina", holds = "ingredientes de cocina", skill = 185 },
+    [11] = { name = "bolsa de componentes", holds = "materiales de profesión", reagent = true },
+}
+
+-- Familia de una bolsa puesta (qué cabe en ella, en bits del juego) → nombre.
+local FAMILY_NAMES = {
+    [0x1] = "carcaj", [0x2] = "bolsa de munición", [0x4] = "bolsa de almas", [0x8] = "bolsa de peletería",
+    [0x10] = "bolsa de inscripción", [0x20] = "bolsa de hierbas", [0x40] = "bolsa de encantamiento",
+    [0x80] = "bolsa de ingeniería", [0x200] = "bolsa de gemas", [0x400] = "bolsa de minería",
+    [0x8000] = "caja de pesca", [0x10000] = "bolsa de cocina",
+}
+
+-- Qué cabe en una bolsa puesta: 0 = de todo; "componentes" = la bolsa de
+-- componentes (el juego la da como normal, se reconoce por su casilla); si
+-- no, los bits de familia del juego.
+function B.BagFamily(bag)
+    if bag > (NUM_BAG_SLOTS or 4) then return REAGENT_FAMILY end
+    if bag <= 0 then return 0 end
+    local _, family = call(C_Container.GetContainerNumFreeSlots, bag)
+    return family or 0
+end
+
+function B.FamilyName(family)
+    if family == 0 then return "normal" end
+    if family == REAGENT_FAMILY then return "bolsa de componentes" end
+    for flag, name in pairs(FAMILY_NAMES) do
+        if bit.band(family, flag) > 0 then return name end
+    end
+    return "bolsa especial"
+end
+
+-- ¿Cabe este objeto en una bolsa de esa familia?
+function B.FitsIn(itemID, family)
+    if family == 0 then return true end
+    local _, _, _, equipLoc = call(C_Item.GetItemInfoInstant, itemID)
+    if equipLoc == "INVTYPE_BAG" then return false end
+    if family == REAGENT_FAMILY then
+        return select(17, call(C_Item.GetItemInfo, itemID)) and true or false
+    end
+    local itemFamily = call(C_Item.GetItemFamily, itemID) or 0
+    return type(family) == "number" and bit.band(itemFamily, family) > 0
+end
+
+-- Tamaño de tus bolsas puestas: { 16, 10, 8, 6, 0 } (0 = hueco sin bolsa) y
+-- qué cabe en cada una.
 local function EquippedBags()
-    local sizes = {}
+    local sizes, families = {}, {}
     for bag = 0, (NUM_BAG_SLOTS or 4) do
         sizes[#sizes + 1] = call(C_Container.GetContainerNumSlots, bag) or 0
+        families[#families + 1] = B.BagFamily(bag)
     end
-    return sizes
+    return sizes, families
 end
 B.EquippedBags = EquippedBags
+
+-- La bolsa normal más pequeña que llevas (0 si tienes un hueco de bolsa
+-- vacío). Las especiales no cuentan: no sirven para cualquier cosa.
+function B.SmallestNormalBag()
+    local sizes, families = EquippedBags()
+    local smallest = math.huge
+    for i = 2, #sizes do
+        if sizes[i] == 0 then return 0 end
+        if families[i] == 0 then smallest = math.min(smallest, sizes[i]) end
+    end
+    return smallest
+end
+
+-- Casillas de tu bolsa de componentes (0 si el hueco está vacío; nil si el
+-- juego no tiene ese hueco).
+function B.ReagentBagSlots()
+    if B.LAST_BAG < B.REAGENT_BAG then return nil end
+    return call(C_Container.GetContainerNumSlots, B.REAGENT_BAG) or 0
+end
 
 -- Libros de la biblioteca de Forever: su descripción dice "Una incorporación
 -- estupenda a la biblioteca de cualquier coleccionista".
@@ -364,6 +450,50 @@ local function IsLibraryBook(e)
     -- Solo recordamos el "no" si el juego ya nos dio la descripción entera.
     if found or #lines >= 3 then libraryCache[e.itemID] = found end
     return found
+end
+
+-- "Clases: Mago" en la ayuda del objeto: solo esas clases pueden usarlo.
+-- Devuelve la lista tal cual ("Mago" o "Mago, Brujo") o nil si no hay.
+local classesPattern
+local classCache = {}
+local function AllowedClasses(e)
+    local cached = classCache[e.itemID]
+    if cached ~= nil then return cached or nil end
+    if classesPattern == nil then
+        classesPattern = false
+        if type(ITEM_CLASSES_ALLOWED) == "string" then
+            local escaped = ITEM_CLASSES_ALLOWED:gsub("([%^%$%(%)%.%[%]%*%+%-%?])", "%%%1")
+            classesPattern = "^" .. escaped:gsub("%%s", "(.+)") .. "$"
+        end
+    end
+    if not classesPattern then return nil end
+    local lines = TooltipLines(e.bag, e.slot)
+    local found = false
+    for _, t in ipairs(lines) do
+        local list = t:match(classesPattern)
+        if list then
+            found = list
+            break
+        end
+    end
+    -- Solo recordamos el "no" si el juego ya nos dio la ayuda entera.
+    if found or #lines >= 3 then classCache[e.itemID] = found end
+    return found or nil
+end
+
+-- ¿Está tu clase en esa lista? (en español, las clases pueden ir en
+-- masculino o femenino).
+local function MyClassIn(list)
+    local mine = {}
+    for _, name in ipairs({ ns.className,
+        LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[ns.class or ""],
+        LOCALIZED_CLASS_NAMES_FEMALE and LOCALIZED_CLASS_NAMES_FEMALE[ns.class or ""] }) do
+        if type(name) == "string" then mine[name:lower()] = true end
+    end
+    for name in list:gmatch("[^,]+") do
+        if mine[strtrim(name):lower()] then return true end
+    end
+    return false
 end
 
 local function Librarian()
@@ -458,6 +588,13 @@ local function Classify(e, ctx)
         return
     end
 
+    -- 3b) Solo para otras clases ("Clases: Mago" y no eres mago).
+    local allowed = AllowedClasses(e)
+    if allowed and not MyClassIn(allowed) then
+        e.group, e.tag, e.note = "tirar", "otra clase", ("Solo lo pueden usar: %s. Véndelo o súbelo a subasta."):format(allowed)
+        return
+    end
+
     -- 4) Libros, manuales y recetas.
     local teaches = db and call(db.Item.Get, e.itemID, "teachesSpell")
     local learned = (teaches and teaches > 0 and SpellKnown(teaches))
@@ -484,11 +621,43 @@ local function Classify(e, ctx)
         return
     end
 
-    -- 5) Bolsas.
+    -- 5) Bolsas. Las especiales solo guardan un tipo de cosa: se comparan
+    -- aparte (y solo te sirven si tienes esa profesión o clase).
+    if cls == CLASS_QUIVER then
+        if ns.class == "HUNTER" then
+            e.group, e.tag, e.note = "bolsa", "carcaj", "Carcaj o bolsa de munición: solo guarda flechas o balas."
+        else
+            e.group, e.tag, e.note = "tirar", "solo cazadores", "Carcaj o bolsa de munición: solo les sirve a los cazadores. Véndelo."
+        end
+        return
+    end
+    local special = cls == CLASS_CONTAINER and sub and sub ~= 0 and B.SPECIAL_BAGS[sub]
+    if special then
+        local slots = BagSlots(e.bag, e.slot)
+        local size = slots and (" de %d casillas"):format(slots) or ""
+        local Name = special.name:sub(1, 1):upper() .. special.name:sub(2)
+        local tag = slots and ("%d · %s"):format(slots, special.name) or special.name
+        if special.reagent then
+            local current = ctx.reagentSlots
+            if current == 0 then
+                e.group, e.tag, e.note = "bolsa", tag, ("%s%s: póntela en la quinta casilla de bolsa. Guarda solo materiales de profesión y te deja libres las demás casillas."):format(Name, size)
+            elseif current and slots and slots > current then
+                e.group, e.tag, e.note = "bolsa", tag, ("Es más grande que tu bolsa de componentes de %d: cámbiala."):format(current)
+            elseif current and slots then
+                e.group, e.tag, e.note = "tirar", tag, "Tu bolsa de componentes ya es igual o más grande: véndela."
+            else
+                e.group, e.tag, e.note = "bolsa", tag, ("%s%s: guarda solo materiales de profesión."):format(Name, size)
+            end
+        elseif (special.skill and ctx.profs[special.skill]) or (special.class and special.class == ns.class) then
+            e.group, e.tag, e.note = "bolsa", tag, ("%s%s: solo guarda %s, pero así te deja libres las casillas normales."):format(Name, size, special.holds)
+        else
+            e.group, e.tag, e.note = "otraprof", tag, ("%s%s: solo guarda %s, y no lo usas. Véndela o súbela a subasta."):format(Name, size, special.holds)
+        end
+        return
+    end
     if cls == CLASS_CONTAINER then
         local slots = BagSlots(e.bag, e.slot)
-        local smallest = math.huge
-        for i = 2, #ctx.bags do smallest = math.min(smallest, ctx.bags[i]) end
+        local smallest = ctx.smallestBag
         if slots and smallest == 0 then
             e.group, e.tag, e.note = "bolsa", ("%d casillas"):format(slots), "¡Tienes un hueco de bolsa vacío! Póntela."
         elseif slots and slots > smallest then
@@ -573,11 +742,16 @@ local pendingItems = false
 
 function B.Analyze()
     local db = QuestDB()
-    local ctx = { db = db, profs = MyProfessions(), objectives = ObjectiveTexts(), bags = EquippedBags(), questItems = ActiveQuestItems(db) }
+    local ctx = {
+        db = db, profs = MyProfessions(), objectives = ObjectiveTexts(), bags = EquippedBags(),
+        smallestBag = B.SmallestNormalBag(), reagentSlots = B.ReagentBagSlots(), questItems = ActiveQuestItems(db),
+    }
     local byItem, list = {}, {}
     local used, total = 0, 0
 
-    for bag = 0, (NUM_BAG_SLOTS or 4) do
+    -- La mochila, tus cuatro bolsas y la bolsa de componentes (la quinta
+    -- casilla de bolsa, donde van los materiales de profesión).
+    for bag = 0, (NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS or 4) do
         local slots = call(C_Container.GetContainerNumSlots, bag) or 0
         total = total + slots
         for slot = 1, slots do
@@ -631,6 +805,52 @@ function B.Analyze()
 
     sum.used, sum.total, sum.bags, sum.withQuestie = used, total, ctx.bags, ctx.db ~= nil
     return list, sum
+end
+
+-- Para /thesito debug: lo que dice el juego de cada profesión y de cada
+-- objeto de tus bolsas, y cómo lo clasifica Thesito.
+function B.DebugLines()
+    local lines = {}
+    local function Add(fmt, ...) lines[#lines + 1] = fmt:format(...) end
+    if GetProfessions and GetProfessionInfo then
+        local list = { n = select("#", GetProfessions()), GetProfessions() }
+        for i = 1, list.n do
+            local index = list[i]
+            if index then
+                local name, icon, rank, maxRank, _, _, reported = GetProfessionInfo(index)
+                Add("prof[%d]: nombre=%s icono=%s nivel=%s/%s juego=%s -> %s", i, tostring(name), tostring(icon),
+                    tostring(rank), tostring(maxRank), tostring(reported), tostring(ProfessionSkillLine(name, icon, reported)))
+            end
+        end
+    end
+    for skillLine, spells in pairs(SIGNATURE_SPELLS) do
+        local parts = {}
+        for _, spell in ipairs(spells) do
+            parts[#parts + 1] = ("%d=%s(%s)"):format(spell, tostring(ns.SpellName(spell)), SpellKnown(spell) and "sabe" or "no")
+        end
+        local main = PROFESSION_SPELL[skillLine]
+        Add("hechizos %d: %s; principal %s=%s icono %s", skillLine, table.concat(parts, " "), tostring(main),
+            tostring(main and ns.SpellName(main)), tostring(main and ns.SpellIcon(main)))
+    end
+    local profs = MyProfessions()
+    local mine = {}
+    for skillLine, rank in pairs(profs) do mine[#mine + 1] = ("%s=%s"):format(tostring(skillLine), tostring(rank)) end
+    Add("profesiones reconocidas: %s", table.concat(mine, ", "))
+    for bag = 0, B.LAST_BAG do
+        local _, family = call(C_Container.GetContainerNumFreeSlots, bag)
+        Add("bolsa %d: %s casillas, tipo %s (juego %s)", bag, tostring(call(C_Container.GetContainerNumSlots, bag)),
+            B.FamilyName(B.BagFamily(bag)), tostring(family))
+    end
+    Add("materiales: %s", tostring(B.reagentStatus))
+    local list = B.Analyze()
+    for _, e in ipairs(list) do
+        local users = {}
+        for skill in pairs(ReagentUsers(e.itemID) or {}) do users[#users + 1] = tostring(skill) end
+        Add("obj %d %s: clase %s/%s calidad %s grupo %s (%s) usan[%s]", e.itemID, tostring(e.name),
+            tostring(e.classID), tostring(e.subclassID), tostring(e.quality), tostring(e.group), tostring(e.tag),
+            table.concat(users, ","))
+    end
+    return lines
 end
 
 -- Cuando el juego termina de cargar datos de objetos, repintamos.
@@ -709,8 +929,28 @@ end
 B.SortKeys = SortKeys
 
 local function NormalBag(bag)
-    local _, family = call(C_Container.GetContainerNumFreeSlots, bag)
-    return not family or family == 0
+    return B.BagFamily(bag) == 0
+end
+
+-- Casillas de tus bolsas especiales (y la de componentes), las de profesión
+-- primero: ahí se llevan los materiales que caben, para liberar las normales.
+local function SpecialSlots()
+    local list = {}
+    for bag = 1, B.LAST_BAG do
+        local family = B.BagFamily(bag)
+        local n = call(C_Container.GetContainerNumSlots, bag) or 0
+        if family ~= 0 and n > 0 then
+            for slot = 1, n do
+                list[#list + 1] = { bag = bag, slot = slot, family = family, last = family == REAGENT_FAMILY }
+            end
+        end
+    end
+    table.sort(list, function(a, b)
+        if a.last ~= b.last then return not a.last end
+        if a.bag ~= b.bag then return a.bag < b.bag end
+        return a.slot < b.slot
+    end)
+    return list
 end
 
 -- Ventana de inventario de Bagnon (o Combuctor), si la tienes. Los dos cargan
@@ -945,7 +1185,37 @@ local function SortStep()
         return
     end
 
-    -- 2) Colocar cada cosa en su casilla (con los huecos entre secciones).
+    -- 2) Llevar a tus bolsas especiales lo que cabe en ellas (hierbas a la de
+    -- hierbas, materiales a la de componentes...), para liberar casillas
+    -- normales. Cada intento se hace una vez: si el juego no lo deja, no se insiste.
+    local fits = {}
+    local function Fits(id, family)
+        local key = id .. ":" .. tostring(family)
+        if fits[key] == nil then fits[key] = B.FitsIn(id, family) end
+        return fits[key]
+    end
+    for _, s in ipairs(sorter.special or {}) do
+        if not sorter or moved >= MAX_MOVES_PER_STEP then break end
+        if not call(C_Container.GetContainerItemInfo, s.bag, s.slot) then
+            for i = 1, #cur do
+                local id = cur[i]
+                local try = id and ("%d:%d:%d"):format(s.bag, s.slot, id)
+                if id and not busy[i] and not sorter.tried[try] and Fits(id, s.family) then
+                    sorter.tried[try] = true
+                    busy[i], cur[i] = true, false
+                    Done(Move(sorter.slots[i], s))
+                    break
+                end
+            end
+        end
+    end
+    if not sorter then return end
+    if moved > 0 then
+        C_Timer.After(0.2, SortStep)
+        return
+    end
+
+    -- 3) Colocar cada cosa en su casilla (con los huecos entre secciones).
     -- Cada movimiento deja bien al menos una casilla, que ya no se vuelve a
     -- tocar; si el intercambio deja bien las dos, mejor.
     table.sort(wanted, Less)
@@ -994,7 +1264,8 @@ function B.Sort()
     local function Begin()
         if not sorter then return end
         sorter.slots = SlotOrder()
-        sorter.limit = #sorter.slots * 4
+        sorter.special = SpecialSlots()
+        sorter.limit = (#sorter.slots + #sorter.special) * 4
         ns.RequestRefresh()
         SortStep()
     end

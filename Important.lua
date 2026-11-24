@@ -252,6 +252,18 @@ I.SLOT_NAMES = SLOT_NAMES
 local ANY_ARMOR = { INVTYPE_NECK = true, INVTYPE_FINGER = true, INVTYPE_TRINKET = true, INVTYPE_CLOAK = true, INVTYPE_HOLDABLE = true }
 
 -- ¿Puede (y le conviene) llevarlo tu clase? Según ns.ClassGear de Data.lua.
+-- Las bolsas especiales (de hierbas, de encantamiento, carcajes...) solo te
+-- sirven si son de tu profesión o tu clase. Devuelve si sirve y qué tipo es.
+local function UsefulBag(itemID, profs)
+    local _, _, _, _, _, classID, sub = call(C_Item.GetItemInfoInstant, itemID)
+    if classID == 11 then return ns.class == "HUNTER", "carcaj" end
+    local special = sub and sub ~= 0 and ns.Bags.SPECIAL_BAGS[sub]
+    if not special then return true, nil end
+    if special.reagent then return true, special.name end
+    local mine = (special.skill and profs[special.skill]) or (special.class and special.class == ns.class)
+    return mine and true or false, special.name
+end
+
 local function ClassCanUse(classID, subclassID, equipLoc, level)
     local gear = ns.ClassGear[ns.class or ""]
     if not gear then return false end
@@ -364,11 +376,12 @@ function I.Lists()
         if not slots then
             pending = true
             call(C_Item.RequestLoadItemDataByID, itemID)
-        elseif slots > BAG_MIN_SLOTS then
+        elseif slots > BAG_MIN_SLOTS and UsefulBag(itemID, profs) then
+            local _, kind = UsefulBag(itemID, profs)
             for _, q in ipairs(db.Item.Get(itemID, "questRewards") or {}) do
                 if Available(db, q, me, profs) then
                     local info = QuestInfo(db, q, me)
-                    info.itemID, info.slots = itemID, slots
+                    info.itemID, info.slots, info.kind = itemID, slots, kind
                     Keep(out.bags, info)
                 end
             end

@@ -63,9 +63,7 @@ function T.Bags()
         return nil, reason == "loading" and "Cargando los datos de SkillUpForever…" or "SkillUpForever no tiene recetas de Sastrería."
     end
 
-    local sizes = ns.Bags.EquippedBags()
-    local smallest = math.huge
-    for i = 2, #sizes do smallest = math.min(smallest, sizes[i]) end
+    local smallest = ns.Bags.SmallestNormalBag()
 
     local out = { skill = skill, smallest = smallest, hidden = 0, list = {} }
     T.pending = false

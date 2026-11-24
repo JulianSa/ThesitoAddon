@@ -87,6 +87,20 @@ local function ItemName(info)
     return type(info.hyperlink) == "string" and info.hyperlink:match("%[(.-)%]") or nil
 end
 
+-- Nombre de una bolsa puesta para la vista por bolsas ("Mochila", "Bolsa de
+-- lana (bolsa de encantamiento)"...).
+local function BagTitle(bag, family)
+    local name
+    if bag == 0 then
+        name = BACKPACK_TOOLTIP or "Mochila"
+    else
+        name = (C_Container.GetBagName and call(C_Container.GetBagName, bag)) or (GetBagName and call(GetBagName, bag))
+    end
+    name = name or ("Bolsa " .. bag)
+    if family ~= 0 then name = name .. " |cff8cc8ff(" .. ns.Bags.FamilyName(family) .. ")|r" end
+    return name
+end
+
 -- Añade a la ayuda del juego lo que dice Thesito de ese objeto. El juego
 -- rehace la ayuda cada poco mientras tienes el ratón encima, así que la
 -- línea se añade cada vez que se construye la ayuda de un objeto.
@@ -109,8 +123,14 @@ end
 local function OnEnterSlot(b)
     if b.thesitoFree then
         GameTooltip:SetOwner(b, "ANCHOR_RIGHT")
-        GameTooltip:SetText(("Casillas vacías: %d"):format(b.thesitoFree))
-        GameTooltip:AddLine("Suelta aquí un objeto para guardarlo en la primera casilla libre.", 1, 1, 1, true)
+        local kind = b.thesitoFreeKind
+        if kind and kind ~= "normal" then
+            GameTooltip:SetText(("Casillas vacías de tu %s: %d"):format(kind, b.thesitoFree))
+            GameTooltip:AddLine("Solo caben las cosas de ese tipo. Suelta aquí una para guardarla ahí.", 1, 1, 1, true)
+        else
+            GameTooltip:SetText(("Casillas vacías: %d"):format(b.thesitoFree))
+            GameTooltip:AddLine("Suelta aquí un objeto para guardarlo en la primera casilla libre.", 1, 1, 1, true)
+        end
         GameTooltip:Show()
         return
     end
@@ -173,8 +193,9 @@ local function SetQuestMark(b, bag, slot)
 end
 
 local function UpdateSlot(b, bag, slot, info, e)
-    b.thesitoEntry, b.thesitoFree = e, nil
+    b.thesitoEntry, b.thesitoFree, b.thesitoFreeKind = e, nil, nil
     if SetItemButtonTexture then SetItemButtonTexture(b, info and info.iconFileID or EMPTY_TEXTURE) end
+    if SetItemButtonTextureVertexColor then SetItemButtonTextureVertexColor(b, 1, 1, 1) end
     if SetItemButtonCount then SetItemButtonCount(b, info and info.stackCount or 0) end
     if SetItemButtonQuality then call(SetItemButtonQuality, b, info and info.quality, info and info.hyperlink) end
     if SetItemButtonDesaturated then SetItemButtonDesaturated(b, info and info.isLocked or false) end
@@ -254,10 +275,12 @@ Layout = function()
     local sections = {}
     for i = 1, #sectionsDef do sections[i] = {} end
 
-    local used, total, free, firstFree = 0, 0, 0, nil
+    -- Casillas vacías por tipo de bolsa (normales, de componentes, de hierbas...).
+    local used, total, free = 0, 0, 0
+    local freeByType, freeTypes = {}, {}
     for bag = 0, LAST_BAG do
         local n = call(C_Container.GetContainerNumSlots, bag) or 0
-        local _, family = call(C_Container.GetContainerNumFreeSlots, bag)
+        local family = ns.Bags.BagFamily(bag)
         for slot = 1, n do
             total = total + 1
             local info = call(C_Container.GetContainerItemInfo, bag, slot)
@@ -268,10 +291,20 @@ Layout = function()
                 into[#into + 1] = { bag = bag, slot = slot, info = info, key = key, e = byItem[info.itemID] }
             else
                 free = free + 1
-                if not firstFree and (not family or family == 0) then firstFree = { bag = bag, slot = slot } end
+                local t = freeByType[family]
+                if not t then
+                    t = { family = family, count = 0, bag = bag, slot = slot }
+                    freeByType[family] = t
+                    freeTypes[#freeTypes + 1] = t
+                end
+                t.count = t.count + 1
             end
         end
     end
+    table.sort(freeTypes, function(a, b)
+        if (a.family == 0) ~= (b.family == 0) then return a.family == 0 end
+        return a.bag < b.bag
+    end)
 
     for _, bySlot in pairs(slotButtons) do
         for _, b in pairs(bySlot) do b:Hide() end
@@ -291,7 +324,8 @@ Layout = function()
         h:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y)
         h:SetWidth(width)
         local sign = key and (collapsed[key] and "|cff9d9d9d+|r " or "|cff9d9d9d-|r ") or ""
-        h.text:SetText(("%s%s |cff9d9d9d(%d)|r"):format(sign, title, count))
+        local countText = type(count) == "number" and ("(%d)"):format(count) or count
+        h.text:SetText(("%s%s |cff9d9d9d%s|r"):format(sign, title, countText))
         h:Show()
         y = y + HEADER_H
     end
@@ -303,37 +337,82 @@ Layout = function()
         b:Show()
     end
 
-    for s, items in ipairs(sections) do
-        if #items > 0 then
-            table.sort(items, Less)
-            local def = sectionsDef[s]
-            local key = def.title
-            PlaceHeader(key, def.title:sub(1, 1):upper() .. def.title:sub(2), #items)
-            if not collapsed[key] then
-                for i, it in ipairs(items) do
-                    local b = SlotButton(it.bag, it.slot)
-                    UpdateSlot(b, it.bag, it.slot, it.info, it.e)
-                    local name = query ~= "" and (ItemName(it.info) or ""):lower()
-                    b:SetAlpha((query == "" or name:find(query, 1, true)) and 1 or 0.25)
-                    PlaceButton(b, i)
-                end
-                y = y + math.ceil(#items / COLUMNS) * (BUTTON + GAP)
-            end
-            y = y + 6
-        end
+    -- Lo que buscas en el buscador se ve normal; lo demás, apagado.
+    local function Alpha(info)
+        if query == "" then return 1 end
+        local name = info and (ItemName(info) or ""):lower()
+        return (name and name:find(query, 1, true)) and 1 or 0.25
     end
 
-    -- Casillas vacías: una sola, con cuántas hay. Al soltar ahí un objeto va a
-    -- la primera casilla libre (de una bolsa normal).
-    PlaceHeader(nil, "Casillas vacías", free)
-    if firstFree then
-        local b = SlotButton(firstFree.bag, firstFree.slot)
-        UpdateSlot(b, firstFree.bag, firstFree.slot, nil, nil)
-        b.thesitoFree = free
-        if SetItemButtonCount then SetItemButtonCount(b, free) end
-        b:SetAlpha(1)
-        PlaceButton(b, 1)
-        y = y + BUTTON + GAP
+    if ns.db.bagView == "bolsas" then
+        -- Vista por bolsas: cada bolsa con todas sus casillas, en su orden,
+        -- como la ventana del juego con las bolsas separadas.
+        for bag = 0, LAST_BAG do
+            local n = call(C_Container.GetContainerNumSlots, bag) or 0
+            if n > 0 then
+                local family = ns.Bags.BagFamily(bag)
+                local infos, usedHere = {}, 0
+                for slot = 1, n do
+                    local info = call(C_Container.GetContainerItemInfo, bag, slot)
+                    if info and info.itemID then
+                        infos[slot] = info
+                        usedHere = usedHere + 1
+                    end
+                end
+                local key = "bolsa:" .. bag
+                PlaceHeader(key, BagTitle(bag, family), ("(%d/%d)"):format(usedHere, n))
+                if not collapsed[key] then
+                    for slot = 1, n do
+                        local info = infos[slot]
+                        local b = SlotButton(bag, slot)
+                        UpdateSlot(b, bag, slot, info, info and byItem[info.itemID])
+                        if not info and family ~= 0 and SetItemButtonTextureVertexColor then
+                            SetItemButtonTextureVertexColor(b, 0.55, 0.8, 1)
+                        end
+                        b:SetAlpha(Alpha(info))
+                        PlaceButton(b, slot)
+                    end
+                    y = y + math.ceil(n / COLUMNS) * (BUTTON + GAP)
+                end
+                y = y + 6
+            end
+        end
+    else
+        for s, items in ipairs(sections) do
+            if #items > 0 then
+                table.sort(items, Less)
+                local def = sectionsDef[s]
+                local key = def.title
+                PlaceHeader(key, def.title:sub(1, 1):upper() .. def.title:sub(2), #items)
+                if not collapsed[key] then
+                    for i, it in ipairs(items) do
+                        local b = SlotButton(it.bag, it.slot)
+                        UpdateSlot(b, it.bag, it.slot, it.info, it.e)
+                        b:SetAlpha(Alpha(it.info))
+                        PlaceButton(b, i)
+                    end
+                    y = y + math.ceil(#items / COLUMNS) * (BUTTON + GAP)
+                end
+                y = y + 6
+            end
+        end
+
+        -- Casillas vacías: una por tipo de bolsa, con cuántas hay. Al soltar
+        -- ahí un objeto va a la primera casilla libre de ese tipo. Las de
+        -- bolsas especiales salen en otro color.
+        PlaceHeader(nil, "Casillas vacías", free)
+        for i, t in ipairs(freeTypes) do
+            local b = SlotButton(t.bag, t.slot)
+            UpdateSlot(b, t.bag, t.slot, nil, nil)
+            b.thesitoFree, b.thesitoFreeKind = t.count, ns.Bags.FamilyName(t.family)
+            if SetItemButtonCount then SetItemButtonCount(b, t.count) end
+            if t.family ~= 0 and SetItemButtonTextureVertexColor then SetItemButtonTextureVertexColor(b, 0.55, 0.8, 1) end
+            b:SetAlpha(1)
+            PlaceButton(b, i)
+        end
+        if #freeTypes > 0 then
+            y = y + math.ceil(#freeTypes / COLUMNS) * (BUTTON + GAP)
+        end
     end
 
     content:SetSize(width, math.max(1, y))
@@ -363,9 +442,38 @@ local function Create()
     search = CreateFrame("EditBox", nil, frame, "SearchBoxTemplate")
     search:SetHeight(20)
     search:SetPoint("TOPLEFT", PAD + 6, -30)
-    search:SetPoint("TOPRIGHT", -PAD - 92, -30)
+    search:SetPoint("TOPRIGHT", -PAD - 186, -30)
     search:SetAutoFocus(false)
     search:HookScript("OnTextChanged", function() W.RequestLayout() end)
+
+    -- Cambiar entre la vista por secciones (todo junto y clasificado) y la
+    -- vista por bolsas (cada bolsa por separado, como la del juego).
+    local view = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    view:SetSize(90, 20)
+    view:SetPoint("TOPRIGHT", -PAD - 88, -30)
+    view:SetNormalFontObject(GameFontNormalSmall)
+    view:SetHighlightFontObject(GameFontHighlightSmall)
+    local function ViewText()
+        view:SetText(ns.db.bagView == "bolsas" and "Por secciones" or "Por bolsas")
+    end
+    view:SetScript("OnShow", ViewText)
+    view:SetScript("OnClick", function(self)
+        ns.db.bagView = (ns.db.bagView == "bolsas") and "secciones" or "bolsas"
+        ViewText()
+        Layout()
+        if GameTooltip:IsOwned(self) then self:GetScript("OnEnter")(self) end
+    end)
+    view:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        if ns.db.bagView == "bolsas" then
+            GameTooltip:SetText("Ver por secciones: todo junto y clasificado (misiones, consumibles, profesiones...).", 1, 1, 1, true)
+        else
+            GameTooltip:SetText("Ver por bolsas: cada bolsa por separado, casilla a casilla, como la del juego.", 1, 1, 1, true)
+        end
+        GameTooltip:Show()
+    end)
+    view:SetScript("OnLeave", GameTooltip_Hide)
+    ViewText()
 
     local analysis = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     analysis:SetSize(84, 20)

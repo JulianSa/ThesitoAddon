@@ -942,7 +942,7 @@ local function FillImportant()
         return {
             icon = C_Item.GetItemIconByID and C_Item.GetItemIconByID(info.itemID), itemID = info.itemID,
             name = info.name, tip = QuestTip(info),
-            right = ("|cff40e0d0%d casillas|r  %s"):format(info.slots, QuestStatus(info, level)),
+            right = ("|cff40e0d0%d casillas%s|r  %s"):format(info.slots, info.kind and (" · " .. info.kind) or "", QuestStatus(info, level)),
         }
     end)
     -- Bolsas que puedes coser como Sastre (solo si este personaje es sastre).

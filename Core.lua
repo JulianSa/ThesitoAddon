@@ -191,34 +191,47 @@ function ThesitoAddon_Toggle()
     if ns.UI then ns.UI.Toggle() end
 end
 
--- /thesito debug: datos para revisar si algo no cuadra.
+-- /thesito debug: datos para revisar si algo no cuadra. Se escriben en el
+-- chat y se guardan también en ns.db.lastDebug (en el archivo de datos de
+-- Thesito, que el juego escribe al hacer /reload o al salir), con más detalle.
 function ns.Debug()
+    local saved = {}
+    local function Out(msg)
+        ns.Print(msg)
+        saved[#saved + 1] = msg
+    end
     local state = ns.Talents.Read()
     if state then
         local nodes = 0
         for _ in pairs(state.nodes) do nodes = nodes + 1 end
-        ns.Print(("talentos: config %s, árbol %s, %d nodos, %d gastados, %d sin gastar."):format(
+        Out(("talentos: config %s, árbol %s, %d nodos, %d gastados, %d sin gastar."):format(
             tostring(state.config), tostring(state.tree), nodes, state.spentTotal, state.unspent))
         local s = ns.Talents.Status(state)
-        ns.Print(("ruta: %d pasos, %d no encontrados en tu árbol, %d talentos fuera de la ruta."):format(
+        Out(("ruta: %d pasos, %d no encontrados en tu árbol, %d talentos fuera de la ruta."):format(
             #s.steps, s.missing, #s.offPlan))
     else
-        ns.Print("talentos: no he podido leer el árbol todavía.")
+        Out("talentos: no he podido leer el árbol todavía.")
     end
     local completed = C_QuestLog.GetAllCompletedQuestIDs and ns.call(C_QuestLog.GetAllCompletedQuestIDs)
-    ns.Print(("misiones: el juego dice que has completado %s."):format(completed and #completed or "?"))
+    Out(("misiones: el juego dice que has completado %s."):format(completed and #completed or "?"))
     if ns.Bags and ns.Bags.ProfessionReport then
-        ns.Print("profesiones: " .. ns.Bags.ProfessionReport())
+        Out("profesiones: " .. ns.Bags.ProfessionReport())
         local users = ns.Bags.ReagentUsers(11083) -- Polvo de alma
         local list = {}
         for skill in pairs(users or {}) do list[#list + 1] = tostring(skill) end
-        ns.Print(("materiales: %s. Polvo de alma lo usa: %s."):format(ns.Bags.reagentStatus,
+        Out(("materiales: %s. Polvo de alma lo usa: %s."):format(ns.Bags.reagentStatus,
             #list > 0 and table.concat(list, ", ") or "nadie"))
     end
     local count = 0
     for _ in pairs(ns.db.trainer) do count = count + 1 end
-    ns.Print(("instructor: %d hechizos guardados."):format(count))
-    if ns.db.trainerRaw then ns.Print("primer hechizo leído (crudo): " .. ns.db.trainerRaw) end
+    Out(("instructor: %d hechizos guardados."):format(count))
+    if ns.db.trainerRaw then Out("primer hechizo leído (crudo): " .. ns.db.trainerRaw) end
+    -- Detalle que no se escribe en el chat (no cabría): solo se guarda.
+    if ns.Bags and ns.Bags.DebugLines then
+        for _, line in ipairs(ns.Bags.DebugLines()) do saved[#saved + 1] = line end
+    end
+    ns.db.lastDebug = { when = date and date("%Y-%m-%d %H:%M:%S") or "?", lines = saved }
+    ns.Print("|cff9d9d9d(guardado con más detalle; haz /reload para que se escriba en el archivo)|r")
 end
 
 ---------------------------------------------------------------------------
