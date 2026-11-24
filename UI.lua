@@ -226,15 +226,27 @@ local function TreeIcon(i)
     return b
 end
 
--- Distancia típica entre talentos vecinos (para convertir posiciones en casillas).
+-- Distancia entre columnas (o filas) vecinas, para convertir posiciones en
+-- casillas. Los talentos de una misma columna no siempre tienen exactamente
+-- la misma posición, así que primero juntamos los valores casi iguales.
 local function GridStep(values)
     table.sort(values)
-    local step = math.huge
-    for k = 2, #values do
-        local d = values[k] - values[k - 1]
-        if d > 1 and d < step then step = d end
+    local range = (values[#values] or 0) - (values[1] or 0)
+    if range <= 0 then return 1 end
+    local tolerance = range / 12
+    local centers = {}
+    local groupStart, sum, count = values[1], 0, 0
+    for _, v in ipairs(values) do
+        if v - groupStart > tolerance then
+            centers[#centers + 1] = sum / count
+            groupStart, sum, count = v, 0, 0
+        end
+        sum, count = sum + v, count + 1
     end
-    return step ~= math.huge and step or 1
+    centers[#centers + 1] = sum / count
+    local step = math.huge
+    for k = 2, #centers do step = math.min(step, centers[k] - centers[k - 1]) end
+    return step ~= math.huge and step or range
 end
 
 -- Dibuja los árboles. Devuelve false si el juego no da las posiciones.
