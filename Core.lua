@@ -174,9 +174,9 @@ SlashCmdList.THESITOADDON = function(msg)
         ns.UI.Open("opciones")
     elseif msg == "quien" or msg == "quién" then
         if ns.IsOn("comm") then
-            ns.Print(("tienes la versión %s. También lo tienen (de tu hermandad o grupo): %s."):format(ns.Version(), ns.PeersText()))
+            ns.Print(("tienes la versión %s. También lo tienen (de tu hermandad, grupo o amigos): %s."):format(ns.Version(), ns.PeersText()))
         else
-            ns.Print("no estás compartiendo que usas Thesito; actívalo en Opciones para ver quién más lo tiene.")
+            ns.Print("tienes apagado «Ver quién más usa Thesito»; actívalo en Opciones.")
         end
     elseif msg == "rumbo" or msg == "quitar" then
         ns.Nav.Clear()
@@ -303,6 +303,58 @@ ns.On("PLAYER_LOGIN", function()
     end
 end)
 
+-- Amigos conectados: los del juego, por susurro invisible entre addons; los
+-- de Battle.net que juegan a esta misma versión del juego, por el canal de
+-- Battle.net. Solo a conectados (a uno desconectado el juego daría un aviso
+-- de "jugador no encontrado"). Como mucho una vez cada 5 minutos a cada uno.
+local lastFriendHello = {}
+local function DueFriend(key)
+    local now = GetTime()
+    if lastFriendHello[key] and now - lastFriendHello[key] < 300 then return false end
+    lastFriendHello[key] = now
+    return true
+end
+
+local function BNSend(kind, gameAccountID)
+    if not (ns.IsOn("comm") and BNSendGameData and gameAccountID) then return end
+    ns.call(BNSendGameData, gameAccountID, COMM_PREFIX, kind .. ":" .. ns.Version())
+end
+
+local function HelloFriends()
+    if not ns.IsOn("comm") then return end
+    if C_FriendList and C_FriendList.GetNumFriends then
+        for i = 1, (ns.call(C_FriendList.GetNumFriends) or 0) do
+            local f = ns.call(C_FriendList.GetFriendInfoByIndex, i)
+            if type(f) == "table" and f.connected and f.name and DueFriend(f.name) then
+                Send("HELLO", "WHISPER", f.name)
+            end
+        end
+    end
+    if C_BattleNet and C_BattleNet.GetFriendAccountInfo and BNGetNumFriends then
+        for i = 1, (ns.call(BNGetNumFriends) or 0) do
+            local account = ns.call(C_BattleNet.GetFriendAccountInfo, i)
+            local game = type(account) == "table" and account.gameAccountInfo
+            if type(game) == "table" and game.isOnline and game.gameAccountID
+                and (not BNET_CLIENT_WOW or game.clientProgram == BNET_CLIENT_WOW)
+                and (not game.wowProjectID or game.wowProjectID == WOW_PROJECT_ID)
+                and DueFriend("bn:" .. game.gameAccountID) then
+                BNSend("HELLO", game.gameAccountID)
+            end
+        end
+    end
+end
+
+-- Los avisos de amigos llegan a rachas: se espera un poco y se saluda una vez.
+local friendsPending = false
+local function HelloFriendsSoon()
+    if friendsPending then return end
+    friendsPending = true
+    C_Timer.After(5, function()
+        friendsPending = false
+        HelloFriends()
+    end)
+end
+
 local greeted = false
 ns.On("PLAYER_ENTERING_WORLD", function()
     if greeted then return end
@@ -310,6 +362,7 @@ ns.On("PLAYER_ENTERING_WORLD", function()
     C_Timer.After(15, function()
         if IsInGuild and IsInGuild() then Hello("GUILD") end
         Hello(GroupChannel())
+        HelloFriends()
     end)
 end)
 
@@ -317,20 +370,62 @@ ns.On("GROUP_ROSTER_UPDATE", function()
     C_Timer.After(3, function() Hello(GroupChannel()) end)
 end)
 
-ns.On("CHAT_MSG_ADDON", function(prefix, message, channel, sender)
-    if prefix ~= COMM_PREFIX or not ns.IsOn("comm") then return end
-    if issecretvalue and (issecretvalue(message) or issecretvalue(sender)) then return end
+-- Un amigo se conecta: se le saluda.
+for _, event in ipairs({ "FRIENDLIST_UPDATE", "BN_FRIEND_ACCOUNT_ONLINE", "BN_FRIEND_INFO_CHANGED" }) do
+    ns.On(event, function()
+        if greeted then HelloFriendsSoon() end
+    end)
+end
+
+-- Lo que llega de otro Thesito: apuntarlo, contestar si nos saluda y avisar
+-- si su versión es más nueva.
+local function Received(message, name, via, Reply)
+    if issecretvalue and (issecretvalue(message) or issecretvalue(name)) then return end
     local kind, version = tostring(message):match("^(%u+):(.+)$")
-    if not kind or type(sender) ~= "string" then return end
-    local name = Ambiguate and Ambiguate(sender, "short") or sender
-    if name == UnitName("player") then return end
-    ns.peers[name] = { version = version, via = channel }
-    if kind == "HELLO" then Send("HI", "WHISPER", sender) end
+    if not kind or type(name) ~= "string" or name == "" or name == UnitName("player") then return end
+    ns.peers[name] = { version = version, via = via }
+    if kind == "HELLO" then Reply("HI") end
     if not warnedNewer and Newer(version, ns.Version()) then
         warnedNewer = true
         ns.Print(("hay una versión nueva de Thesito (%s; la tiene %s). Descárgala de %s"):format(version, name, DOWNLOAD_URL))
     end
+    ns.RequestRefresh() -- por si tienes abiertas las Opciones
+end
+
+ns.On("CHAT_MSG_ADDON", function(prefix, message, channel, sender)
+    if prefix ~= COMM_PREFIX or not ns.IsOn("comm") then return end
+    if issecretvalue and issecretvalue(sender) then return end
+    if type(sender) ~= "string" then return end
+    local name = Ambiguate and Ambiguate(sender, "short") or sender
+    Received(message, name, channel, function(kind) Send(kind, "WHISPER", sender) end)
 end)
+
+ns.On("BN_CHAT_MSG_ADDON", function(prefix, message, _, senderID)
+    if prefix ~= COMM_PREFIX or not ns.IsOn("comm") then return end
+    if issecretvalue and issecretvalue(senderID) then return end
+    local game = C_BattleNet and ns.call(C_BattleNet.GetGameAccountInfoByID, senderID)
+    local name = type(game) == "table" and game.characterName
+    Received(message, name, "AMIGO", function(kind) BNSend(kind, senderID) end)
+end)
+
+-- Para la lista de Opciones: { { name, version, newer, where } ... } por nombre.
+-- "where" es "grupo", "hermandad" o "amigo".
+function ns.PeerList()
+    local list = {}
+    for name, p in pairs(ns.peers) do
+        local where
+        if ns.call(UnitInRaid, name) or ns.call(UnitInParty, name) then
+            where = "grupo"
+        elseif p.via == "GUILD" or (C_GuildInfo and ns.call(C_GuildInfo.MemberExistsByName, name)) then
+            where = "hermandad"
+        elseif p.via == "AMIGO" or (C_FriendList and ns.call(C_FriendList.GetFriendInfo, name)) then
+            where = "amigo"
+        end
+        list[#list + 1] = { name = name, version = p.version, newer = Newer(p.version, ns.Version()), where = where }
+    end
+    table.sort(list, function(a, b) return a.name < b.name end)
+    return list
+end
 
 -- "Nombre (0.9.3), Otro (0.9.1)" o "nadie todavía".
 function ns.PeersText()

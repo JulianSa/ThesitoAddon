@@ -32,6 +32,7 @@ local rows = {}
 local tab = "talentos"
 local selected = {} -- misión abierta en cada pestaña (misiones / importante)
 local optionsFrame, optionChecks = nil, {}
+local optionsPanel, peersList, optionsBaseHeight
 
 -- Pestañas, en orden. Cada una se puede quitar en Opciones ("tab:<clave>").
 local TAB_DEFS = {
@@ -87,9 +88,10 @@ local OPTIONS = {
       tip = "Abre la pestaña Instructor al lado de la ventana del instructor de tu clase.",
       get = function() return ns.db.autoOpenTrainer ~= false end,
       set = function(on) ns.db.autoOpenTrainer = on end },
-    { key = "comm", label = "Decir a tu hermandad y grupo que usas Thesito",
-      tip = function()
-          return "Solo se envía la versión (el juego añade el nombre de tu personaje). Así ves quién más lo tiene (/thesito quien) y te avisa si alguien tiene una versión más nueva.\n\n|cffffd200Lo tienen:|r " .. ns.PeersText()
+    { key = "comm", label = "Ver quién más usa Thesito y avisarme de versiones nuevas",
+      tip = "No escribe nada en ningún chat. Los addons se comunican entre ellos por un canal invisible: el Thesito de los jugadores de tu hermandad, de tu grupo y de tus amigos conectados (del juego o de Battle.net) se dicen qué versión tienen (solo eso). Si alguien tiene una más nueva, te sale un aviso a ti.",
+      info = function()
+          return ("|cff9d9d9dTu versión: %s. La lista está abajo, en «Jugadores con Thesito».|r"):format(ns.Version())
       end },
     { label = "Botón del minimapa",
       tip = "Si lo quitas, abre Thesito con /thesito.",
@@ -1249,31 +1251,38 @@ local function Create()
     footerLine:SetPoint("BOTTOMRIGHT", -10, FOOTER_H)
     footerLine:SetColorTexture(1, 0.82, 0, 0.5)
 
-    -- Panel de Opciones (ocupa el sitio de la lista).
-    optionsFrame = CreateFrame("Frame", nil, frame)
+    -- Panel de Opciones (ocupa el sitio de la lista; se desplaza con la rueda).
+    optionsFrame = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
     optionsFrame:SetPoint("TOPLEFT", 16, HEADER_Y)
-    optionsFrame:SetPoint("BOTTOMRIGHT", -16, FOOTER_H + 6)
+    optionsFrame:SetPoint("BOTTOMRIGHT", -34, FOOTER_H + 6)
     optionsFrame:Hide()
-    local intro = optionsFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local panel = CreateFrame("Frame", nil, optionsFrame)
+    panel:SetSize(WIDTH - 54, 1)
+    optionsFrame:SetScrollChild(panel)
+    optionsPanel = panel
+    local function Section(title, y)
+        local t = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        t:SetPoint("TOPLEFT", 0, -y)
+        t:SetText(title)
+        local line = panel:CreateTexture(nil, "ARTWORK")
+        line:SetHeight(1)
+        line:SetPoint("TOPLEFT", 0, -(y + 16))
+        line:SetPoint("RIGHT", panel, "RIGHT", 0, 0)
+        line:SetColorTexture(1, 0.82, 0, 0.45)
+    end
+    local intro = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     intro:SetPoint("TOPLEFT", 0, 0)
-    intro:SetPoint("RIGHT", optionsFrame, "RIGHT", 0, 0)
+    intro:SetPoint("RIGHT", panel, "RIGHT", 0, 0)
     intro:SetJustifyH("LEFT")
     intro:SetText("|cff9d9d9dDesmarca lo que no quieras usar (se guarda para cada personaje). Pasa el ratón por cada opción para ver qué hace.|r")
     local y = 20
     for _, opt in ipairs(OPTIONS) do
         if opt.section then
             y = y + 6
-            local t = optionsFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-            t:SetPoint("TOPLEFT", 0, -y)
-            t:SetText(opt.section)
-            local line = optionsFrame:CreateTexture(nil, "ARTWORK")
-            line:SetHeight(1)
-            line:SetPoint("TOPLEFT", 0, -(y + 16))
-            line:SetPoint("RIGHT", optionsFrame, "RIGHT", 0, 0)
-            line:SetColorTexture(1, 0.82, 0, 0.45)
+            Section(opt.section, y)
             y = y + 22
         else
-            local c = CreateFrame("CheckButton", nil, optionsFrame, "UICheckButtonTemplate")
+            local c = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
             c:SetSize(24, 24)
             c:SetPoint("TOPLEFT", 4, -y)
             local label = c:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -1292,8 +1301,28 @@ local function Create()
             c:SetScript("OnLeave", GameTooltip_Hide)
             optionChecks[#optionChecks + 1] = c
             y = y + 24
+            -- Texto debajo de la opción (por ejemplo, quién más tiene Thesito).
+            if opt.info then
+                c.infoText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                c.infoText:SetPoint("TOPLEFT", 32, -y)
+                c.infoText:SetPoint("RIGHT", panel, "RIGHT", 0, 0)
+                c.infoText:SetJustifyH("LEFT")
+                y = y + 16
+            end
         end
     end
+
+    -- Jugadores con Thesito (de tu hermandad o tu grupo), uno por línea.
+    y = y + 6
+    Section("Jugadores con Thesito", y)
+    y = y + 22
+    peersList = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    peersList:SetPoint("TOPLEFT", 4, -y)
+    peersList:SetPoint("RIGHT", panel, "RIGHT", 0, 0)
+    peersList:SetJustifyH("LEFT")
+    peersList:SetJustifyV("TOP")
+    peersList:SetSpacing(3)
+    optionsBaseHeight = y
 
     clearRoute = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     clearRoute:SetSize(110, 22)
@@ -1352,7 +1381,27 @@ local function FillOptions()
     showKnown:Hide()
     header:Hide()
     scrollFrame:Hide()
-    for _, c in ipairs(optionChecks) do c:SetChecked(GetOption(c.opt)) end
+    for _, c in ipairs(optionChecks) do
+        c:SetChecked(GetOption(c.opt))
+        if c.infoText then c.infoText:SetText(c.opt.info()) end
+    end
+    -- Jugadores con Thesito, uno por línea (en verde quien tiene una versión más nueva).
+    local text
+    if not ns.IsOn("comm") then
+        text = "|cff9d9d9dActiva «Ver quién más usa Thesito» para verlos.|r"
+    else
+        local lines = {}
+        for _, p in ipairs(ns.PeerList()) do
+            lines[#lines + 1] = ("• %s%s|r  |cff9d9d9dversión %s%s|r%s"):format(
+                p.newer and "|cff40ff40" or "|cffffffff", p.name, tostring(p.version),
+                p.where and (" · " .. p.where) or "",
+                p.newer and "  |cff40ff40(más nueva que la tuya)|r" or "")
+        end
+        text = #lines > 0 and table.concat(lines, "\n")
+            or "|cff9d9d9dNadie todavía. Saldrán aquí los de tu hermandad, tu grupo o tus amigos conectados que tengan Thesito (los amigos, desde la versión 0.9.5).|r"
+    end
+    peersList:SetText(text)
+    optionsPanel:SetHeight(optionsBaseHeight + peersList:GetStringHeight() + 12)
     optionsFrame:Show()
     return 0
 end

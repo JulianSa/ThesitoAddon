@@ -15,7 +15,7 @@ Detecta solo la clase, la raza, la facción y las profesiones de cada personaje,
 | **Misiones** | Tus misiones con su nivel en el color de su dificultad (gris, verde, amarillo, naranja, rojo) y su tipo: **E** élite, **D** mazmorra, **R** banda, **P** JcJ. Qué hacer, dónde y a quién entregarlas. Pone rumbo con una línea en el mapa y el minimapa, por etapas: zepelín o barco, vuelo y a pie. |
 | **Importante** | Misiones que dan bolsas grandes, misiones de tu clase, recompensas que mejoran tu equipo y, si eres Sastre, las bolsas que puedes coser. |
 
-**Otros jugadores con Thesito:** el addon dice a tu hermandad y a tu grupo qué versión tienes, con un mensaje invisible entre addons. Solo se envía la versión; el juego añade el nombre de tu personaje. Así puedes ver quién más lo tiene (`/thesito quien`), y te avisa si alguien tiene una versión más nueva. No se guarda nada y se apaga en Opciones.
+**Otros jugadores con Thesito:** no escribe nada en ningún chat. Los addons se comunican entre ellos por un canal invisible: el Thesito de los jugadores de tu hermandad, de tu grupo y de tus amigos conectados (del juego o de Battle.net) se dicen qué versión tienen (solo eso). Así ves en Opciones (o con `/thesito quien`) quién más lo usa, y te sale un aviso si alguien tiene una versión más nueva. No se guarda nada y se apaga en Opciones.
 
 Todo se puede quitar en **Opciones** (botón junto a *Créditos*): cada pestaña, la ventana de bolsas, el botón de ordenar, el aviso al subir de nivel, el brillo en la ventana de talentos, abrir con el instructor y el botón del minimapa. Se guarda para cada personaje.
 
@@ -50,7 +50,7 @@ Sin ellos el addon funciona, pero esas partes avisan de que faltan.
 | `/thesito` | Abre o cierra la ventana |
 | `/thesito talentos` · `instructor` · `bolsas` · `misiones` · `importante` · `creditos` | Abre esa pestaña |
 | `/thesito opciones` | Abre las opciones |
-| `/thesito quien` | Quién más tiene Thesito en tu hermandad o grupo, y con qué versión |
+| `/thesito quien` | Quién más tiene Thesito en tu hermandad, tu grupo o tus amigos, y con qué versión |
 | `/thesito mochila` | Abre o cierra las bolsas (igual que la tecla B) |
 | `/thesito centrar bolsas` | Vuelve a poner la ventana de bolsas en su sitio |
 | `/thesito ordenar` | Ordena las bolsas por grupos |
