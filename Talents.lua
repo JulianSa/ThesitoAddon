@@ -47,6 +47,7 @@ function T.Read()
                 max = n.maxRanks or 0,
                 canBuy = n.canPurchaseRank,
                 x = n.posX, y = n.posY,       -- posición en la ventana de talentos
+                visible = n.isVisible,        -- false = el juego no lo enseña
                 groups = n.groupIDs,          -- rama (Disciplina, Sagrado...)
                 edges = n.visibleEdges,       -- flechas de requisito
             }
@@ -118,17 +119,36 @@ function T.ActiveRoute(state)
     return best
 end
 
+-- ¿La ruta la elige el addon (la que más se parece a tus talentos)?
+function T.IsAuto()
+    local key = ns.db and ns.db.routeKey
+    if not key then return true end
+    for _, r in ipairs(T.Routes()) do
+        if r.key == key then return false end
+    end
+    return true
+end
+
+-- Cambiar ruta: Automática → ruta 1 → ruta 2 → … → Automática.
 function T.CycleRoute()
     local routes = T.Routes()
     if #routes < 2 then return end
-    local current = T.ActiveRoute(T.Read())
-    for i, r in ipairs(routes) do
-        if r == current then
-            local nextRoute = routes[i % #routes + 1]
-            ns.db.routeKey = nextRoute.key
-            ns.Print("ruta de talentos: " .. nextRoute.title)
-            break
+    local nextKey
+    if T.IsAuto() then
+        nextKey = routes[1].key
+    else
+        for i, r in ipairs(routes) do
+            if r.key == ns.db.routeKey then
+                nextKey = routes[i + 1] and routes[i + 1].key or nil
+                break
+            end
         end
+    end
+    ns.db.routeKey = nextKey
+    if nextKey then
+        ns.Print("ruta de talentos elegida por ti: " .. T.ActiveRoute(T.Read()).title)
+    else
+        ns.Print("ruta de talentos automática: " .. T.ActiveRoute(T.Read()).title .. " (la que más se parece a tus talentos).")
     end
     ns.RequestRefresh()
 end

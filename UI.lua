@@ -249,6 +249,33 @@ local function GridStep(values)
     return step ~= math.huge and step or range
 end
 
+-- Quita talentos sueltos muy lejos del resto de su rama (posiciones raras
+-- que encogerían el dibujo). Un árbol normal tiene 4 columnas y 7 filas.
+local function RemoveStrays(nodes)
+    for _ = 1, 3 do
+        if #nodes < 3 then return nodes end
+        local xs, ys = {}, {}
+        for _, n in ipairs(nodes) do xs[#xs + 1], ys[#ys + 1] = n.x, n.y end
+        table.sort(xs)
+        table.sort(ys)
+        local mx, my = xs[math.ceil(#xs / 2)], ys[math.ceil(#ys / 2)]
+        local sx, sy = GridStep({ unpack(xs) }), GridStep({ unpack(ys) })
+        local cols = math.floor((xs[#xs] - xs[1]) / sx + 0.5) + 1
+        local rows = math.floor((ys[#ys] - ys[1]) / sy + 0.5) + 1
+        if cols <= 6 and rows <= 10 then return nodes end
+        -- Fuera el más alejado de la mediana y volvemos a mirar.
+        local worst, worstD
+        for i, n in ipairs(nodes) do
+            local d = math.abs(n.x - mx) / sx + math.abs(n.y - my) / sy
+            if not worstD or d > worstD then worst, worstD = i, d end
+        end
+        local kept = {}
+        for i, n in ipairs(nodes) do if i ~= worst then kept[#kept + 1] = n end end
+        nodes = kept
+    end
+    return nodes
+end
+
 -- Dibuja los árboles. Devuelve false si el juego no da las posiciones.
 local function DrawTree(state, s)
     for _, b in ipairs(treeIcons) do b:Hide() end
@@ -266,7 +293,8 @@ local function DrawTree(state, s)
     local treeOf, perTree, any = {}, {}, false
     for idx, t in ipairs(state.trees) do treeOf[t.groupID] = idx end
     for _, node in pairs(state.nodes) do
-        if node.spell and type(node.x) == "number" and type(node.y) == "number" then
+        if node.spell and node.visible ~= false and node.max > 0
+            and type(node.x) == "number" and type(node.y) == "number" then
             for _, g in ipairs(node.groups or {}) do
                 local t = treeOf[g]
                 if t then
@@ -286,7 +314,7 @@ local function DrawTree(state, s)
     local areaW = W / #state.trees
     local pos = {}
     for t, tree in ipairs(state.trees) do
-        local nodes = perTree[t] or {}
+        local nodes = RemoveStrays(perTree[t] or {})
         local xs, ys = {}, {}
         local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
         for _, n in ipairs(nodes) do
@@ -400,7 +428,8 @@ local function FillTalents()
     viewButton:Show()
     header:SetPoint("RIGHT", frame, "RIGHT", -130, 0) -- deja sitio a los botones
 
-    local lines = { "|cffffd200Ruta:|r " .. s.route.title }
+    local lines = { "|cffffd200Ruta:|r " .. s.route.title
+        .. (ns.Talents.IsAuto() and " |cff9d9d9d(automática)|r" or " |cff80c0ff(elegida por ti)|r") }
     if state then
         local parts = {}
         for _, t in ipairs(state.trees) do parts[#parts + 1] = ("%s |cffffffff%d|r"):format(t.name, t.spent) end
@@ -1007,8 +1036,9 @@ local function Create()
     routeButton:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText("Rutas de talentos de tu clase")
+        GameTooltip:AddLine("• Automática: la que más se parece a tus talentos", 1, 1, 1)
         for _, r in ipairs(ns.Talents.Routes()) do GameTooltip:AddLine("• " .. r.title, 1, 1, 1) end
-        GameTooltip:AddLine("Al principio se elige sola la que más se parece a tus talentos.", 0.6, 0.6, 0.6, true)
+        GameTooltip:AddLine("Cada clic pasa a la siguiente.", 0.6, 0.6, 0.6, true)
         GameTooltip:Show()
     end)
     routeButton:SetScript("OnLeave", GameTooltip_Hide)
