@@ -15,6 +15,7 @@ local band = bit.band
 local BAG_MIN_SLOTS = 10   -- "más de 10 casillas"
 local UPGRADE_BELOW = 4    -- misiones de hasta 4 niveles por debajo del tuyo
 local MAX_ABOVE = 3        -- y como mucho 3 niveles por encima
+local HARD_ABOVE = 6       -- mejoras "algo más difíciles": de 4 a 6 niveles por encima
 
 local status = "idle"      -- idle | scanning | ready | nodb
 local progress = 0
@@ -337,15 +338,20 @@ function I.Lists()
     local me = Me()
     local profs = ns.Bags.Professions and ns.Bags.Professions() or {}
     pending = false
-    local out = { bags = {}, class = {}, upgrades = {}, later = 0, hard = 0 }
+    local out = { bags = {}, class = {}, upgrades = {}, upgradesHard = {}, later = 0, hard = 0 }
 
     -- Solo las que puedes coger ya y no son demasiado difíciles (misión de
     -- más de 3 niveles por encima del tuyo); las demás solo se cuentan.
-    local function Keep(list, info)
+    -- Las mejoras de equipo de 4 a 6 niveles por encima van aparte (hardList).
+    local function Keep(list, info, hardList)
         if info.minLevel > me.level then
             out.later = out.later + 1
         elseif info.level and info.level > me.level + MAX_ABOVE then
-            out.hard = out.hard + 1
+            if hardList and info.level <= me.level + HARD_ABOVE then
+                hardList[#hardList + 1] = info
+            else
+                out.hard = out.hard + 1
+            end
         else
             list[#list + 1] = info
         end
@@ -395,7 +401,7 @@ function I.Lists()
                     if gain then
                         local info = QuestInfo(db, q, me)
                         info.itemID, info.gain, info.slot, info.before, info.after = itemID, gain, slot, before, after
-                        Keep(out.upgrades, info)
+                        Keep(out.upgrades, info, out.upgradesHard)
                     end
                 end
             end
@@ -408,10 +414,12 @@ function I.Lists()
     end
     table.sort(out.bags, byLevel)
     table.sort(out.class, byLevel)
-    table.sort(out.upgrades, function(a, b)
+    local function byGain(a, b)
         if a.gain ~= b.gain then return a.gain > b.gain end
         return a.name < b.name
-    end)
+    end
+    table.sort(out.upgrades, byGain)
+    table.sort(out.upgradesHard, byGain)
     out.me = me
     return out
 end

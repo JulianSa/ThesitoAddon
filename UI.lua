@@ -116,14 +116,19 @@ local function GetRow(i)
     return row
 end
 
--- Secciones plegadas (se recuerdan por personaje).
+-- Secciones plegadas (se recuerdan por personaje). Algunas empiezan plegadas.
+local START_COLLAPSED = { ["imp:equipo-dificil"] = true }
+
 local function Collapsed(key)
-    return key ~= nil and ns.db.collapsed ~= nil and ns.db.collapsed[key] == true
+    if key == nil then return false end
+    local saved = ns.db.collapsed and ns.db.collapsed[key]
+    if saved == nil then return START_COLLAPSED[key] == true end
+    return saved
 end
 
 local function ToggleSection(key)
     ns.db.collapsed = ns.db.collapsed or {}
-    ns.db.collapsed[key] = not ns.db.collapsed[key] or nil
+    ns.db.collapsed[key] = not Collapsed(key)
     UI.Refresh()
 end
 
@@ -868,19 +873,27 @@ local function FillImportant()
         return { name = info.name, tipTitle = info.name, tip = QuestTip(info), right = QuestStatus(info, level) }
     end)
     local noGear = not (ns.ClassGear[ns.class or ""] and ns.ClassWeights[ns.class or ""])
-    Section("|cffc080ffMejoras para tu equipo|r", "imp:equipo", data.upgrades,
-        noGear and ("Todavía no tengo datos de equipo para %s (se añaden en Data.lua)."):format(ns.className or "tu clase")
-            or "Ninguna recompensa cercana a tu nivel mejora lo que llevas.", function(info)
+    -- Fila de una mejora de equipo; hard = misión algo más difícil.
+    local function UpgradeRow(info, hard)
         local _, link = ns.call(C_Item.GetItemInfo, info.itemID)
         local slotName = ns.Important.SLOT_NAMES[info.slot] or "equipo"
+        local status = hard and ("|cffff9933misión nivel %d|r"):format(info.level) or QuestStatus(info, level)
+        local warning = hard and ("|cffff9933Ojo: la misión es de nivel %d, %d por encima del tuyo. Mejor en grupo o dentro de un par de niveles.|r\n"):format(info.level, info.level - level) or ""
         return {
             icon = C_Item.GetItemIconByID and C_Item.GetItemIconByID(info.itemID), itemID = info.itemID,
             name = (link or "?") .. " |cff9d9d9d(" .. info.name .. ")|r",
-            right = ("|cffc080ff+%d|r %s  %s"):format(info.gain, slotName, QuestStatus(info, level)),
-            tip = ("Recompensa de «%s». Mejora tu %s: de %d a %d puntos.\n%s"):format(
-                info.name, slotName, info.before, info.after, QuestTip(info)),
+            right = ("|cffc080ff+%d|r %s  %s"):format(info.gain, slotName, status),
+            tip = ("Recompensa de «%s». Mejora tu %s: de %d a %d puntos.\n%s%s"):format(
+                info.name, slotName, info.before, info.after, warning, QuestTip(info)),
         }
-    end)
+    end
+    Section("|cffc080ffMejoras para tu equipo|r", "imp:equipo", data.upgrades,
+        noGear and ("Todavía no tengo datos de equipo para %s (se añaden en Data.lua)."):format(ns.className or "tu clase")
+            or "Ninguna recompensa cercana a tu nivel mejora lo que llevas.", function(info) return UpgradeRow(info, false) end)
+    if not noGear then
+        Section("|cffff9933Mejoras algo más difíciles (misión 4-6 niveles por encima)|r", "imp:equipo-dificil", data.upgradesHard,
+            "Tampoco hay mejoras en misiones algo más difíciles.", function(info) return UpgradeRow(info, true) end)
+    end
     return i
 end
 
