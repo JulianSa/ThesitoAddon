@@ -31,10 +31,33 @@ function ns.SpellIcon(id)
     return (ns.call(GetSpellTexture, id))
 end
 
+-- Opciones: lo que se puede apagar en la pestaña Opciones (todo encendido
+-- mientras no se diga lo contrario).
+function ns.IsOn(key)
+    return not (ns.db and ns.db.off and ns.db.off[key])
+end
+
+function ns.SetOn(key, on)
+    if not ns.db then return end
+    ns.db.off = ns.db.off or {}
+    ns.db.off[key] = (not on) or nil
+end
+
+-- Dinero con los iconos de oro, plata y cobre.
+local COIN = "|TInterface\\MoneyFrame\\UI-%sIcon:12:12:2:0|t"
 function ns.Money(copper)
-    copper = copper or 0
-    if GetCoinTextureString then return GetCoinTextureString(copper) end
-    return ("%do %dp %dc"):format(math.floor(copper / 10000), math.floor(copper / 100) % 100, copper % 100)
+    copper = math.floor(tonumber(copper) or 0)
+    local fn = (C_CurrencyInfo and C_CurrencyInfo.GetCoinTextureString) or GetCoinTextureString
+    if fn then
+        local ok, text = pcall(fn, copper)
+        if ok and type(text) == "string" and text ~= "" then return text end
+    end
+    local gold, silver, bronze = math.floor(copper / 10000), math.floor(copper / 100) % 100, copper % 100
+    local parts = {}
+    if gold > 0 then parts[#parts + 1] = gold .. COIN:format("Gold") end
+    if silver > 0 or gold > 0 then parts[#parts + 1] = silver .. COIN:format("Silver") end
+    parts[#parts + 1] = bronze .. COIN:format("Copper")
+    return table.concat(parts, " ")
 end
 
 ---------------------------------------------------------------------------
@@ -111,12 +134,14 @@ end
 
 -- Al subir de nivel: qué talento poner y qué hay nuevo en el instructor.
 ns.On("PLAYER_LEVEL_UP", function(level)
-    if not ns.ready then return end
+    if not (ns.ready and ns.IsOn("levelUp")) then return end
     C_Timer.After(2, function()
         ns.Print(("|cffffd200¡Nivel %d!|r"):format(level))
-        local talent = ns.Talents.NextLine()
-        if talent then ns.Print("Talento: " .. talent) end
-        ns.Print(ns.Trainer.LevelUpLine(level))
+        if ns.IsOn("tab:talentos") then
+            local talent = ns.Talents.NextLine()
+            if talent then ns.Print("Talento: " .. talent) end
+        end
+        if ns.IsOn("tab:entrenador") then ns.Print(ns.Trainer.LevelUpLine(level)) end
         ns.RequestRefresh()
     end)
 end)
@@ -145,8 +170,16 @@ SlashCmdList.THESITOADDON = function(msg)
         ns.UI.Open("importante")
     elseif msg == "creditos" or msg == "créditos" then
         ns.UI.Open("creditos")
+    elseif msg == "opciones" or msg == "config" then
+        ns.UI.Open("opciones")
     elseif msg == "rumbo" or msg == "quitar" then
         ns.Nav.Clear()
+    elseif msg == "ordenar" then
+        ns.Bags.Sort()
+    elseif msg == "mochila" then
+        ns.BagWindow.Toggle()
+    elseif msg == "centrar bolsas" then
+        ns.BagWindow.ResetPosition()
     else
         ns.UI.Toggle()
     end
@@ -174,6 +207,14 @@ function ns.Debug()
     end
     local completed = C_QuestLog.GetAllCompletedQuestIDs and ns.call(C_QuestLog.GetAllCompletedQuestIDs)
     ns.Print(("misiones: el juego dice que has completado %s."):format(completed and #completed or "?"))
+    if ns.Bags and ns.Bags.ProfessionReport then
+        ns.Print("profesiones: " .. ns.Bags.ProfessionReport())
+        local users = ns.Bags.ReagentUsers(11083) -- Polvo de alma
+        local list = {}
+        for skill in pairs(users or {}) do list[#list + 1] = tostring(skill) end
+        ns.Print(("materiales: %s. Polvo de alma lo usa: %s."):format(ns.Bags.reagentStatus,
+            #list > 0 and table.concat(list, ", ") or "nadie"))
+    end
     local count = 0
     for _ in pairs(ns.db.trainer) do count = count + 1 end
     ns.Print(("instructor: %d hechizos guardados."):format(count))

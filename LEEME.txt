@@ -9,9 +9,13 @@ Una ventana con lo que necesitas mientras subes de nivel:
   minimapa (zepelín, vuelo o a pie).
 - Importante: bolsas grandes, misiones de tu clase y recompensas que mejoran
   tu equipo; si eres Sastre, también las bolsas que puedes coser.
+- Ventana de bolsas: sustituye a la del juego (tecla B) y enseña tus cosas por
+  secciones (misiones, consumibles, profesiones, para vender...). Se activa
+  sola si no usas otro addon de bolsas (Bagnon, Baganator...).
 
 Detecta sola la clase, la raza, la facción y las profesiones de cada personaje.
 Rutas de talentos y consejos de instructor para las nueve clases.
+Todo se puede quitar en el botón "Opciones" de la ventana.
 El botón "Créditos" de la ventana dice de dónde sale cada dato.
 
 

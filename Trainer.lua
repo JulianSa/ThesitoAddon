@@ -147,7 +147,7 @@ local function OnTrainerUpdate()
     if not (visit and ns.ready) then return end
     if not Tr.Scan() then return end
     ns.RequestRefresh()
-    if visit == "open" and ns.db.autoOpenTrainer ~= false then
+    if visit == "open" and ns.db.autoOpenTrainer ~= false and ns.IsOn("tab:entrenador") then
         visit = ns.UI.OpenBesideTrainer() and "shown" or "seen"
     end
 end

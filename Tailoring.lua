@@ -31,15 +31,8 @@ end
 
 -- Tu nivel de Sastrería, o nil si no eres sastre.
 function T.Skill()
-    if not (GetProfessions and GetProfessionInfo) then return nil end
-    local list = { n = select("#", GetProfessions()), GetProfessions() }
-    for i = 1, list.n do
-        local index = list[i]
-        if index then
-            local _, _, rank, _, _, _, skillLine = GetProfessionInfo(index)
-            if skillLine == TAILORING then return rank end
-        end
-    end
+    local profs = ns.Bags and ns.Bags.Professions and ns.Bags.Professions() or {}
+    return profs[TAILORING]
 end
 
 local function Known(recipeID)

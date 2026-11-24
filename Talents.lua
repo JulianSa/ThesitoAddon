@@ -199,7 +199,7 @@ end
 
 function T.UpdateGlow(tries)
     local f = TalentsFrame()
-    if not (ns.ready and f and f:IsShown()) then
+    if not (ns.ready and f and f:IsShown() and ns.IsOn("tab:talentos") and ns.IsOn("glow")) then
         if glow then glow:Hide() end
         return
     end

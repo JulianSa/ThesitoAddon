@@ -10,9 +10,12 @@ Detecta solo la clase, la raza, la facción y las profesiones de cada personaje,
 |---|---|
 | **Talentos** | La ruta de talentos más recomendada para subir solo con tu clase. Se ve como el árbol del juego, con lo que ya tienes, el siguiente talento y lo que pondrás después. El siguiente brilla también en la ventana de talentos del juego. |
 | **Instructor** | Al hablar con el instructor de tu clase, te dice qué hechizos son esenciales, cuáles útiles y cuáles te puedes saltar para ahorrar oro. |
-| **Bolsas** | Qué puedes vender o tirar (basura, objetos de misiones ya hechas, libros ya aprendidos), qué desencantar, qué guardar para tus profesiones y qué libros de biblioteca entregar. |
+| **Bolsas** | Qué puedes vender o tirar (basura, objetos de misiones ya hechas, libros ya aprendidos), qué desencantar, qué guardar para tus profesiones y qué libros de biblioteca entregar. Con el botón **Ordenar bolsas** (también en la ventana de las bolsas, la del juego o la de Bagnon) junta los montones y agrupa: misiones, piedra de hogar y consumibles, bolsas, equipo, tus profesiones, otras profesiones, lo demás, para desencantar y, al final, lo de vender o tirar. Cada sección empieza en una fila nueva si hay sitio; si no, deja una casilla vacía entre secciones. |
+| **Ventana de bolsas** | Sustituye a la ventana de bolsas del juego (tecla B, vendedor, banco...): tus cosas por secciones (misiones, consumibles, equipo, profesiones, para vender...), con buscador, secciones plegables y la explicación de Thesito al pasar el ratón. Clic derecho, vender, arrastrar y partir montones funcionan como siempre. Se activa sola si no usas otro addon de bolsas (Bagnon, Baganator...); se cambia con la casilla *Ventana propia* de la pestaña Bolsas. |
 | **Misiones** | Tus misiones con qué hacer, dónde y a quién entregarlas. Pone rumbo con una línea en el mapa y el minimapa, por etapas: zepelín o barco, vuelo y a pie. |
 | **Importante** | Misiones que dan bolsas grandes, misiones de tu clase, recompensas que mejoran tu equipo y, si eres Sastre, las bolsas que puedes coser. |
+
+Todo se puede quitar en **Opciones** (botón junto a *Créditos*): cada pestaña, la ventana de bolsas, el botón de ordenar, el aviso al subir de nivel, el brillo en la ventana de talentos, abrir con el instructor y el botón del minimapa. Se guarda para cada personaje.
 
 Clases con ruta de talentos y consejos de instructor: **todas** (guerrero, paladín, cazador, pícaro, sacerdote, chamán, mago, brujo y druida).
 
@@ -44,6 +47,10 @@ Sin ellos el addon funciona, pero esas partes avisan de que faltan.
 |---|---|
 | `/thesito` | Abre o cierra la ventana |
 | `/thesito talentos` · `instructor` · `bolsas` · `misiones` · `importante` · `creditos` | Abre esa pestaña |
+| `/thesito opciones` | Abre las opciones |
+| `/thesito mochila` | Abre o cierra las bolsas (igual que la tecla B) |
+| `/thesito centrar bolsas` | Vuelve a poner la ventana de bolsas en su sitio |
+| `/thesito ordenar` | Ordena las bolsas por grupos |
 | `/thesito quitar` | Quita el rumbo del mapa |
 | `/thesito centrar` | Vuelve a poner la ventana en el centro |
 | `/thesito debug` | Datos para revisar si algo falla |
@@ -58,6 +65,7 @@ Sin ellos el addon funciona, pero esas partes avisan de que faltan.
   - Guerrero Armas ([Abide](https://www.icy-veins.com/wow-forever/arms-warrior-leveling)) · Paladín Reprensión ([Meyra](https://www.icy-veins.com/wow-forever/retribution-paladin-leveling)) · Cazador Dominio de bestias ([Impakt](https://www.icy-veins.com/wow-forever/beast-mastery-hunter-leveling)) · Pícaro Combate ([Sellin](https://www.icy-veins.com/wow-forever/combat-rogue-leveling)) · Mago Escarcha ([Teloril](https://www.icy-veins.com/wow-forever/frost-mage-leveling)) · Brujo Aflicción ([Abide](https://www.icy-veins.com/wow-forever/affliction-warlock-leveling)) · Druida Feral ([Meyra](https://www.icy-veins.com/wow-forever/feral-druid-leveling)) · Chamán Mejora ([Wordup](https://www.icy-veins.com/wow-forever/enhancement-shaman-leveling)).
 - **SendaFH** (GPLv3): identificadores de los talentos de Forever.
 - **Warcraft Wiki** y **Warcraft Tavern**: documentación de la API y de los libros de biblioteca.
+- Consultado (sin copiar su código): **Bagnon**, para saber cómo sustituir la ventana de bolsas del juego, y **SkillUpForever**, para saber cómo da Forever las profesiones.
 - Consejos de instructor, pesos de estadísticas y posiciones de zepelines y barcos: criterio propio (editables en `Data.lua` y `Nav.lua`).
 
 Hecho por Thesito con ayuda de Claude (Anthropic). Si algo de esto es tuyo y quieres que se cambie, abre una *issue*.

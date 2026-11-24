@@ -23,7 +23,7 @@ local ADVICE = {
 }
 local ICON_OK = "|TInterface\\RaidFrame\\ReadyCheck-Ready:14|t"
 
-local frame, scrollFrame, content, header, nextBox, showKnown, viewButton
+local frame, scrollFrame, content, header, nextBox, showKnown, viewButton, sortBagsButton, ownBagsCheck
 local subtitle, clearRoute
 local detailScroll, detailChild, detailText
 local tabButtons = {}
@@ -31,6 +31,101 @@ local questButtons = {}
 local rows = {}
 local tab = "talentos"
 local selected = {} -- misión abierta en cada pestaña (misiones / importante)
+local optionsFrame, optionChecks = nil, {}
+
+-- Pestañas, en orden. Cada una se puede quitar en Opciones ("tab:<clave>").
+local TAB_DEFS = {
+    { "talentos", "Talentos" }, { "entrenador", "Instructor" }, { "bolsas", "Bolsas" },
+    { "misiones", "Misiones" }, { "importante", "Importante" },
+}
+
+local function TabOn(key)
+    for _, def in ipairs(TAB_DEFS) do
+        if def[1] == key then return ns.IsOn("tab:" .. key) end
+    end
+    return true -- créditos y opciones siempre
+end
+
+local function FirstTab()
+    for _, def in ipairs(TAB_DEFS) do
+        if ns.IsOn("tab:" .. def[1]) then return def[1] end
+    end
+    return "opciones"
+end
+
+-- Opciones. Las que tienen "key" se guardan con ns.SetOn (todo encendido por
+-- defecto); las demás traen su propio get/set.
+local OPTIONS = {
+    { section = "Pestañas" },
+    { key = "tab:talentos", label = "Talentos",
+      tip = "La ruta de talentos para subir, el árbol y cuál es el siguiente." },
+    { key = "tab:entrenador", label = "Instructor",
+      tip = "Qué hechizos comprar y cuáles saltarte al hablar con el instructor de tu clase." },
+    { key = "tab:bolsas", label = "Bolsas",
+      tip = "Qué vender, tirar, desencantar o guardar, y por qué." },
+    { key = "tab:misiones", label = "Misiones",
+      tip = "Tus misiones: qué hacer, dónde, a quién entregarlas y rumbo en el mapa." },
+    { key = "tab:importante", label = "Importante",
+      tip = "Misiones que dan bolsas grandes, misiones de tu clase y mejoras de equipo." },
+    { section = "Bolsas" },
+    { label = "Ventana de bolsas de Thesito, por secciones",
+      tip = "Al abrir las bolsas (tecla B, vendedor, banco...) sale la de Thesito en vez de la del juego. No la uses a la vez que otro addon de bolsas (Bagnon, Baganator...).",
+      get = function() return ns.BagWindow and ns.BagWindow.Enabled() end,
+      set = function(on) if ns.BagWindow then ns.BagWindow.SetEnabled(on) end end },
+    { key = "sortButton", label = "Botón «Ordenar» en la ventana de Bagnon o del juego",
+      tip = "Ordena las cosas dentro de las bolsas por secciones, dejando huecos entre ellas.",
+      after = function() ns.Bags.UpdateSortButtons() end },
+    { section = "Avisos y ayudas" },
+    { key = "levelUp", label = "Aviso en el chat al subir de nivel",
+      tip = "Qué talento poner y qué hechizos nuevos tiene el instructor." },
+    { key = "glow", label = "Brillo del siguiente talento en la ventana de talentos",
+      after = function() ns.Talents.UpdateGlow() end },
+    { label = "Abrir Thesito al hablar con el instructor",
+      tip = "Abre la pestaña Instructor al lado de la ventana del instructor de tu clase.",
+      get = function() return ns.db.autoOpenTrainer ~= false end,
+      set = function(on) ns.db.autoOpenTrainer = on end },
+    { label = "Botón del minimapa",
+      tip = "Si lo quitas, abre Thesito con /thesito.",
+      get = function() return not ns.db.hideMinimap end,
+      set = function(on)
+          ns.db.hideMinimap = (not on) or nil
+          if ns.minimapButton then ns.minimapButton:SetShown(on) end
+      end },
+}
+
+local function GetOption(opt)
+    if opt.get then return opt.get() and true or false end
+    return ns.IsOn(opt.key)
+end
+
+-- Coloca seguidas las pestañas activadas y esconde las demás.
+local function LayoutTabs()
+    local prev
+    for _, def in ipairs(TAB_DEFS) do
+        local b = tabButtons[def[1]]
+        if b then
+            b:ClearAllPoints()
+            if ns.IsOn("tab:" .. def[1]) then
+                if prev then
+                    b:SetPoint("LEFT", prev, "RIGHT", b.isTab and -4 or 4, 0)
+                else
+                    b:SetPoint("TOPLEFT", 14, TABS_Y)
+                end
+                b:Show()
+                prev = b
+            else
+                b:Hide()
+            end
+        end
+    end
+end
+
+local function SetOption(opt, on)
+    if opt.set then opt.set(on) else ns.SetOn(opt.key, on) end
+    if opt.after then opt.after() end
+    if opt.key and opt.key:find("^tab:") then LayoutTabs() end
+    if UI.Refresh then UI.Refresh() end
+end
 
 ---------------------------------------------------------------------------
 -- Filas de la lista
@@ -599,6 +694,16 @@ local function FillBags()
     showKnown:Hide()
     local list, sum = ns.Bags.Analyze()
 
+    local sorting = ns.Bags.IsSorting()
+    sortBagsButton:SetText(sorting and "Ordenando..." or "Ordenar bolsas")
+    sortBagsButton:SetEnabled(not sorting)
+    sortBagsButton:Show()
+    if ns.BagWindow then
+        ownBagsCheck:SetChecked(ns.BagWindow.Enabled())
+        ownBagsCheck:Show()
+    end
+    header:SetPoint("RIGHT", frame, "RIGHT", -130, 0)
+
     local sizes = {}
     for _, n in ipairs(sum.bags) do sizes[#sizes + 1] = tostring(n) end
     header:SetText(table.concat({
@@ -962,10 +1067,14 @@ local function Create()
     credits:SetText("Créditos")
     credits:SetScript("OnClick", function() UI.Open("creditos") end)
 
+    local options = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    options:SetSize(90, 22)
+    options:SetPoint("RIGHT", credits, "LEFT", -4, 0)
+    options:SetText("Opciones")
+    options:SetScript("OnClick", function() UI.Open("opciones") end)
+
     -- Pestañas (con el aspecto de pestaña del juego si está disponible).
-    local prev
-    for _, def in ipairs({ { "talentos", "Talentos" }, { "entrenador", "Instructor" }, { "bolsas", "Bolsas" },
-        { "misiones", "Misiones" }, { "importante", "Importante" } }) do
+    for _, def in ipairs(TAB_DEFS) do
         local ok, b = pcall(CreateFrame, "Button", nil, frame, "PanelTopTabButtonTemplate")
         if ok and b then
             b.isTab = true
@@ -976,18 +1085,13 @@ local function Create()
             b:SetSize(88, 24)
             b:SetText(def[2])
         end
-        if prev then
-            b:SetPoint("LEFT", prev, "RIGHT", b.isTab and -4 or 4, 0)
-        else
-            b:SetPoint("TOPLEFT", 14, TABS_Y)
-        end
         b:SetScript("OnClick", function()
             selected[def[1]] = nil
             UI.Open(def[1])
         end)
         tabButtons[def[1]] = b
-        prev = b
     end
+    LayoutTabs()
     local tabLine = frame:CreateTexture(nil, "ARTWORK")
     tabLine:SetHeight(1)
     tabLine:SetPoint("TOPLEFT", 10, TABS_Y - 28)
@@ -1050,6 +1154,42 @@ local function Create()
     end)
     viewButton:Hide()
 
+    -- Botón "Ordenar bolsas" (solo en Bolsas).
+    sortBagsButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    sortBagsButton:SetSize(110, 20)
+    sortBagsButton:SetPoint("TOPRIGHT", -14, HEADER_Y + 2)
+    sortBagsButton:SetScript("OnClick", function() ns.Bags.Sort() end)
+    sortBagsButton:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText("Ordenar bolsas")
+        GameTooltip:AddLine("Junta los montones y pone juntas las cosas del mismo tipo, en este orden: "
+            .. ns.Bags.SortOrderText() .. ".", 1, 1, 1, true)
+        GameTooltip:AddLine("También tienes el botón «Ordenar» en la ventana de las bolsas (con Bagnon, en la barra de abajo).", 0.7, 0.7, 0.7, true)
+        GameTooltip:Show()
+    end)
+    sortBagsButton:SetScript("OnLeave", GameTooltip_Hide)
+    sortBagsButton:Hide()
+
+    -- Casilla "Ventana propia" (solo en Bolsas): usar la ventana de bolsas de Thesito.
+    ownBagsCheck = CreateFrame("CheckButton", nil, frame, "UICheckButtonTemplate")
+    ownBagsCheck:SetSize(22, 22)
+    ownBagsCheck:SetPoint("TOPRIGHT", -102, HEADER_Y - 22)
+    local ownLabel = ownBagsCheck:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    ownLabel:SetPoint("LEFT", ownBagsCheck, "RIGHT", 1, 0)
+    ownLabel:SetText("Ventana propia")
+    ownBagsCheck:SetScript("OnClick", function(self)
+        ns.BagWindow.SetEnabled(self:GetChecked() and true or false)
+    end)
+    ownBagsCheck:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText("Ventana de bolsas de Thesito")
+        GameTooltip:AddLine("Al abrir las bolsas (tecla B, vendedor, banco...) sale la ventana de Thesito, con tus cosas por secciones, en vez de la del juego. Clic derecho, vender, arrastrar y partir montones funcionan igual.", 1, 1, 1, true)
+        GameTooltip:AddLine("No la uses a la vez que otro addon de bolsas (Bagnon, Baganator...).", 1, 0.6, 0.2, true)
+        GameTooltip:Show()
+    end)
+    ownBagsCheck:SetScript("OnLeave", GameTooltip_Hide)
+    ownBagsCheck:Hide()
+
     -- Zona del árbol de talentos (ocupa el sitio de la lista).
     treeFrame = CreateFrame("Frame", nil, frame)
     treeFrame:SetPoint("TOPLEFT", 12, LIST_TOP)
@@ -1097,24 +1237,50 @@ local function Create()
     footerLine:SetPoint("BOTTOMRIGHT", -10, FOOTER_H)
     footerLine:SetColorTexture(1, 0.82, 0, 0.5)
 
-    local function Option(text, x, get, set)
-        local c = CreateFrame("CheckButton", nil, frame, "UICheckButtonTemplate")
-        c:SetSize(24, 24)
-        c:SetPoint("BOTTOMLEFT", x, 8)
-        local label = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        label:SetPoint("LEFT", c, "RIGHT", 2, 0)
-        label:SetText(text)
-        c:SetScript("OnShow", function(self) self:SetChecked(get()) end)
-        c:SetScript("OnClick", function(self) set(self:GetChecked() and true or false) end)
-        return c
+    -- Panel de Opciones (ocupa el sitio de la lista).
+    optionsFrame = CreateFrame("Frame", nil, frame)
+    optionsFrame:SetPoint("TOPLEFT", 16, HEADER_Y)
+    optionsFrame:SetPoint("BOTTOMRIGHT", -16, FOOTER_H + 6)
+    optionsFrame:Hide()
+    local intro = optionsFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    intro:SetPoint("TOPLEFT", 0, 0)
+    intro:SetPoint("RIGHT", optionsFrame, "RIGHT", 0, 0)
+    intro:SetJustifyH("LEFT")
+    intro:SetText("|cff9d9d9dDesmarca lo que no quieras usar (se guarda para cada personaje). Pasa el ratón por cada opción para ver qué hace.|r")
+    local y = 20
+    for _, opt in ipairs(OPTIONS) do
+        if opt.section then
+            y = y + 6
+            local t = optionsFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            t:SetPoint("TOPLEFT", 0, -y)
+            t:SetText(opt.section)
+            local line = optionsFrame:CreateTexture(nil, "ARTWORK")
+            line:SetHeight(1)
+            line:SetPoint("TOPLEFT", 0, -(y + 16))
+            line:SetPoint("RIGHT", optionsFrame, "RIGHT", 0, 0)
+            line:SetColorTexture(1, 0.82, 0, 0.45)
+            y = y + 22
+        else
+            local c = CreateFrame("CheckButton", nil, optionsFrame, "UICheckButtonTemplate")
+            c:SetSize(24, 24)
+            c:SetPoint("TOPLEFT", 4, -y)
+            local label = c:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            label:SetPoint("LEFT", c, "RIGHT", 2, 0)
+            label:SetText(opt.label)
+            c.opt = opt
+            c:SetScript("OnClick", function(self) SetOption(opt, self:GetChecked() and true or false) end)
+            c:SetScript("OnEnter", function(self)
+                if not opt.tip then return end
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText(opt.label)
+                GameTooltip:AddLine(opt.tip, 1, 1, 1, true)
+                GameTooltip:Show()
+            end)
+            c:SetScript("OnLeave", GameTooltip_Hide)
+            optionChecks[#optionChecks + 1] = c
+            y = y + 24
+        end
     end
-    Option("Botón del minimapa", 12, function() return not ns.db.hideMinimap end, function(on)
-        ns.db.hideMinimap = not on or nil
-        if ns.minimapButton then ns.minimapButton:SetShown(on) end
-    end)
-    Option("Abrir con el instructor", 160, function() return ns.db.autoOpenTrainer ~= false end, function(on)
-        ns.db.autoOpenTrainer = on
-    end)
 
     clearRoute = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     clearRoute:SetSize(110, 22)
@@ -1143,7 +1309,8 @@ local CREDITS = {
     "• Los identificadores de cada talento se sacaron del árbol que publica el addon |cffffffffSendaFH|r (GPLv3).",
     "",
     "|cffffd200Consultados para aprender cómo funciona Forever|r",
-    "• El código de |cffffffffSendaFH|r, |cffffffffLFGForever|r, |cffffffffBind on Forever Guide|r y |cffffffffSkillUpForever|r, para saber cómo leer los talentos y el instructor. No se ha copiado su código.",
+    "• El código de |cffffffffSendaFH|r, |cffffffffLFGForever|r, |cffffffffBind on Forever Guide|r y |cffffffffSkillUpForever|r, para saber cómo leer los talentos, el instructor y las profesiones de Forever. No se ha copiado su código.",
+    "• El código de |cffffffffBagnon|r (Jaliborc y Tuller), para saber cómo sustituir la ventana de bolsas del juego. No se ha copiado su código.",
     "• |cffffffffWarcraft Wiki|r (warcraft.wiki.gg): documentación de la API del juego y de los libros de biblioteca.",
     "• |cffffffffWarcraft Tavern|r: guía de los libros de biblioteca de Forever.",
     "",
@@ -1167,8 +1334,20 @@ local function FillCredits()
     return 0
 end
 
+local function FillOptions()
+    nextBox:Hide()
+    showKnown:Hide()
+    header:Hide()
+    scrollFrame:Hide()
+    for _, c in ipairs(optionChecks) do c:SetChecked(GetOption(c.opt)) end
+    optionsFrame:Show()
+    return 0
+end
+
 function UI.Refresh()
     if not (frame and frame:IsShown() and ns.db) then return end
+    if not TabOn(tab) then tab = FirstTab() end
+    optionsFrame:Hide()
     for name, b in pairs(tabButtons) do
         if b.isTab and PanelTemplates_SelectTab then
             if name == tab then PanelTemplates_SelectTab(b) else PanelTemplates_DeselectTab(b) end
@@ -1185,6 +1364,8 @@ function UI.Refresh()
     scrollFrame:Show()
     detailScroll:Hide()
     viewButton:Hide()
+    sortBagsButton:Hide()
+    ownBagsCheck:Hide()
     treeFrame:Hide()
     for _, b in pairs(questButtons) do b:Hide() end
     local n
@@ -1198,6 +1379,8 @@ function UI.Refresh()
         n = FillImportant()
     elseif tab == "creditos" then
         n = FillCredits()
+    elseif tab == "opciones" then
+        n = FillOptions()
     else
         n = FillTrainer()
     end
@@ -1214,6 +1397,10 @@ end
 function UI.Open(which)
     if not CanOpen() then return end
     Create()
+    if which and not TabOn(which) then
+        ns.Print("esa pestaña está desactivada. Puedes activarla en Opciones.")
+        which = "opciones"
+    end
     if which then tab = which end
     if not frame:IsShown() then
         ApplyPosition()
@@ -1241,7 +1428,7 @@ end
 -- Abre la pestaña Instructor junto a la ventana del instructor.
 -- Devuelve true si la ventana estaba cerrada (para cerrarla al irte).
 function UI.OpenBesideTrainer()
-    if not CanOpen() then return false end
+    if not CanOpen() or not TabOn("entrenador") then return false end
     Create()
     tab = "entrenador"
     if frame:IsShown() then
