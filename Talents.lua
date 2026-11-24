@@ -95,62 +95,10 @@ end
 
 local FIRST_LEVEL = 10
 
-function T.Routes()
-    return ns.Routes[ns.class or ""] or {}
-end
-
--- La ruta activa: la que elegiste con "Cambiar ruta" o, si no, la que más se
--- parece a los talentos que ya tienes.
-function T.ActiveRoute(state)
-    local routes = T.Routes()
-    if #routes == 0 then return nil end
-    for _, r in ipairs(routes) do
-        if r.key == (ns.db and ns.db.routeKey) then return r end
-    end
-    local best, bestScore = routes[1], 0
-    for _, r in ipairs(routes) do
-        local score = 0
-        for _, step in ipairs(r.steps) do
-            local node = Lookup(state, step)
-            if node then score = score + math.min(node.rank, step.rank) end
-        end
-        if score > bestScore then best, bestScore = r, score end
-    end
-    return best
-end
-
--- ¿La ruta la elige el addon (la que más se parece a tus talentos)?
-function T.IsAuto()
-    local key = ns.db and ns.db.routeKey
-    if not key then return true end
-    for _, r in ipairs(T.Routes()) do
-        if r.key == key then return false end
-    end
-    return true
-end
-
--- Cambiar ruta: Automática → ruta 1 → ruta 2 → … → Automática.
-function T.CycleRoute()
-    local routes = T.Routes()
-    if #routes < 2 then return end
-    local nextKey
-    if T.IsAuto() then
-        nextKey = routes[1].key
-    else
-        for i, r in ipairs(routes) do
-            if r.key == ns.db.routeKey then
-                nextKey = routes[i + 1] and routes[i + 1].key or nil
-                break
-            end
-        end
-    end
-    ns.db.routeKey = nextKey
-    if nextKey then
-        ns.Print("ruta de talentos elegida por ti: " .. T.ActiveRoute(T.Read()).title)
-    else
-        ns.Print("ruta de talentos automática: " .. T.ActiveRoute(T.Read()).title .. " (la que más se parece a tus talentos).")
-    end
-    ns.RequestRefresh()
+-- La ruta de tu clase: una sola, la más recomendada para subir solo (Data.lua).
+function T.ActiveRoute()
+    local routes = ns.Routes[ns.class or ""]
+    return routes and routes[1] or nil
 end
 
 -- Compara tu árbol con la ruta.
@@ -160,7 +108,7 @@ function T.Status(state, route)
     route = route or T.ActiveRoute(state)
     local s = { steps = {}, missing = 0, offPlan = {}, route = route }
     if not route then return s end
-    local planned = {}
+    local planned = {} -- rango al que los pasos anteriores ya llevan cada talento
     local used = state and state.spentTotal or 0
     for i, step in ipairs(route.steps) do
         local node = Lookup(state, step)
@@ -173,8 +121,11 @@ function T.Status(state, route)
             row.missing = true
             s.missing = s.missing + 1
         end
+        -- Un talento puede salir varias veces (3/5 y luego 5/5): solo cuentan
+        -- los puntos que este paso añade a lo que ya pedían los anteriores.
+        local left = target - math.max(have, node and planned[node] or 0)
+        if not row.done and not row.missing and left <= 0 then row.done = true end
         if not row.done and not row.missing then
-            local left = target - have
             row.from = FIRST_LEVEL + used
             row.to = row.from + left - 1
             used = used + left

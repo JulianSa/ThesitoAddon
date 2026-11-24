@@ -8,7 +8,7 @@ Detecta solo la clase, la raza, la facción y las profesiones de cada personaje,
 
 | Pestaña | Para qué sirve |
 |---|---|
-| **Talentos** | Ruta de talentos para subir de nivel (dos por clase). Se ve como el árbol del juego, con lo que ya tienes, el siguiente talento y lo que pondrás después. El siguiente brilla también en la ventana de talentos del juego. |
+| **Talentos** | La ruta de talentos más recomendada para subir solo con tu clase. Se ve como el árbol del juego, con lo que ya tienes, el siguiente talento y lo que pondrás después. El siguiente brilla también en la ventana de talentos del juego. |
 | **Instructor** | Al hablar con el instructor de tu clase, te dice qué hechizos son esenciales, cuáles útiles y cuáles te puedes saltar para ahorrar oro. |
 | **Bolsas** | Qué puedes vender o tirar (basura, objetos de misiones ya hechas, libros ya aprendidos), qué desencantar, qué guardar para tus profesiones y qué libros de biblioteca entregar. |
 | **Misiones** | Tus misiones con qué hacer, dónde y a quién entregarlas. Pone rumbo con una línea en el mapa y el minimapa, por etapas: zepelín o barco, vuelo y a pie. |
@@ -53,7 +53,8 @@ Sin ellos el addon funciona, pero esas partes avisan de que faltan.
 - **[Questie / QuestieDB](https://github.com/Questie/Questie)** (GPLv3): datos de misiones, PNJ, objetos y zonas, consultados mientras juegas.
 - **SkillUpForever** (GPLv3): datos de recetas de profesiones, consultados mediante su API pública.
 - **TomTom** y **HereBeDragons**: flecha y posiciones en el mapa.
-- **[Forever Hispano](https://foreverhispano.com/clases-y-guias/)**: orden de los talentos de todas las rutas (guías de clase, revisión 1.1, 07/11/2026).
+- **[WoW Forever Builds](https://wowforeverbuilds.com/guide/shadow-priest-leveling)**: ruta de Sacerdote Sombras para subir solo (17/11/2026).
+- **[Forever Hispano](https://foreverhispano.com/clases-y-guias/)**: rutas de talentos del resto de clases (guías de clase, revisión 1.1, 07/11/2026).
 - **SendaFH** (GPLv3): identificadores de los talentos de Forever.
 - **Warcraft Wiki** y **Warcraft Tavern**: documentación de la API y de los libros de biblioteca.
 - Consejos de instructor, pesos de estadísticas y posiciones de zepelines y barcos: criterio propio (editables en `Data.lua` y `Nav.lua`).

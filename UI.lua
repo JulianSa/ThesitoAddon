@@ -23,7 +23,7 @@ local ADVICE = {
 }
 local ICON_OK = "|TInterface\\RaidFrame\\ReadyCheck-Ready:14|t"
 
-local frame, scrollFrame, content, header, nextBox, showKnown, routeButton, viewButton
+local frame, scrollFrame, content, header, nextBox, showKnown, viewButton
 local subtitle, clearRoute
 local detailScroll, detailChild, detailText
 local tabButtons = {}
@@ -289,9 +289,11 @@ local function DrawTree(state, s)
     if not (state and #state.trees > 0) then return false end
 
     -- Paso de la ruta de cada talento.
+    -- (si un talento sale varias veces, manda el primer paso que falte)
     local plan = {}
     for _, row in ipairs(s.steps) do
-        if row.node and not plan[row.node] then plan[row.node] = row end
+        local current = row.node and plan[row.node]
+        if row.node and (not current or (current.done and not row.done)) then plan[row.node] = row end
     end
 
     -- Talentos de cada rama.
@@ -428,13 +430,11 @@ local function FillTalents()
             .. "(se añade en Data.lua)."):format(ns.className or "tu clase"))
         return 0
     end
-    if #ns.Talents.Routes() > 1 then routeButton:Show() end
     viewButton:SetText(ns.db.talentView == "lista" and "Ver árbol" or "Ver lista")
     viewButton:Show()
-    header:SetPoint("RIGHT", frame, "RIGHT", -130, 0) -- deja sitio a los botones
+    header:SetPoint("RIGHT", frame, "RIGHT", -130, 0) -- deja sitio al botón
 
-    local lines = { "|cffffd200Ruta:|r " .. s.route.title
-        .. (ns.Talents.IsAuto() and " |cff9d9d9d(automática)|r" or " |cff80c0ff(elegida por ti)|r") }
+    local lines = { "|cffffd200Ruta:|r " .. s.route.title }
     if state then
         local parts = {}
         for _, t in ipairs(state.trees) do parts[#parts + 1] = ("%s |cffffffff%d|r"):format(t.name, t.spent) end
@@ -1040,27 +1040,10 @@ local function Create()
         UI.Refresh()
     end)
 
-    -- Botón "Cambiar ruta" (solo en Talentos, si tu clase tiene varias).
-    routeButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    routeButton:SetSize(110, 22)
-    routeButton:SetPoint("TOPRIGHT", -14, HEADER_Y + 2)
-    routeButton:SetText("Cambiar ruta")
-    routeButton:SetScript("OnClick", function() ns.Talents.CycleRoute() end)
-    routeButton:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Rutas de talentos de tu clase")
-        GameTooltip:AddLine("• Automática: la que más se parece a tus talentos", 1, 1, 1)
-        for _, r in ipairs(ns.Talents.Routes()) do GameTooltip:AddLine("• " .. r.title, 1, 1, 1) end
-        GameTooltip:AddLine("Cada clic pasa a la siguiente.", 0.6, 0.6, 0.6, true)
-        GameTooltip:Show()
-    end)
-    routeButton:SetScript("OnLeave", GameTooltip_Hide)
-    routeButton:Hide()
-
     -- Botón "Ver árbol / Ver lista" (solo en Talentos).
     viewButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     viewButton:SetSize(110, 20)
-    viewButton:SetPoint("TOPRIGHT", -14, HEADER_Y - 20)
+    viewButton:SetPoint("TOPRIGHT", -14, HEADER_Y + 2)
     viewButton:SetScript("OnClick", function()
         ns.db.talentView = (ns.db.talentView == "lista") and "arbol" or "lista"
         UI.Refresh()
@@ -1156,7 +1139,8 @@ local CREDITS = {
     "• |cffffffffTomTom|r y su librería |cffffffffHereBeDragons|r: la flecha y las posiciones para las líneas del mapa.",
     "",
     "|cffffd200Rutas de talentos|r",
-    "• |cffffffffForever Hispano|r (foreverhispano.com): el orden de los talentos de todas las rutas sale de sus guías de clase (revisión 1.1, 07/11/2026). La ruta \"la de Thesito\" mezcla lo que tenía puesto con la suya.",
+    "• |cffffffffWoW Forever Builds|r (wowforeverbuilds.com): la ruta de Sacerdote Sombras para subir solo (guía de subida, 17/11/2026).",
+    "• |cffffffffForever Hispano|r (foreverhispano.com): las rutas del resto de clases, de sus guías de clase (revisión 1.1, 07/11/2026).",
     "• Los identificadores de cada talento se sacaron del árbol que publica el addon |cffffffffSendaFH|r (GPLv3).",
     "",
     "|cffffd200Consultados para aprender cómo funciona Forever|r",
@@ -1201,7 +1185,6 @@ function UI.Refresh()
     header:SetPoint("RIGHT", frame, "RIGHT", -16, 0)
     scrollFrame:Show()
     detailScroll:Hide()
-    routeButton:Hide()
     viewButton:Hide()
     treeFrame:Hide()
     for _, b in pairs(questButtons) do b:Hide() end
