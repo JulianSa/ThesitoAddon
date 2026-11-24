@@ -19,9 +19,13 @@ ns.Routes = {
             -- WoW Forever Builds, "Shadow Priest Leveling" (actualizada 17/11/2026):
             -- https://wowforeverbuilds.com/guide/shadow-priest-leveling
             -- Hecha para subir solo: varita y Transfusión de espíritu al principio.
+            -- Cambio propio: Contagio devorador 2/2 en lugar de Alcance de las
+            -- Sombras 2/2. La guía usa datos de talentos antiguos y no lo tiene;
+            -- en Forever abarata un 25 % Peste devoradora y la contagia al morir
+            -- (el maná es lo que más frena subiendo solo; el alcance, poco).
             -- Un talento puede salir varias veces: el número es el rango al que llega.
             key = "sombras-subir",
-            title = "Sombras para subir solo · WoW Forever Builds",
+            title = "Sombras para subir solo · basada en WoW Forever Builds",
             steps = {
                 { 14524, 2, "Especialización en varitas" },
                 { 15270, 5, "Transfusión de espíritu" },
@@ -35,7 +39,7 @@ ns.Routes = {
                 { 15273, 3, "Explosión mental mejorada" },
                 { 15487, 1, "Silencio" },
                 { 15273, 5, "Explosión mental mejorada" },
-                { 17322, 2, "Alcance de las Sombras" },
+                { 1309950, 2, "Contagio devorador" },
                 { 15259, 5, "Oscuridad" },
                 { 15473, 1, "Forma de las Sombras" },
                 { 15260, 5, "Enfoque de las Sombras" },

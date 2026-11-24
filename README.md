@@ -53,7 +53,7 @@ Sin ellos el addon funciona, pero esas partes avisan de que faltan.
 - **[Questie / QuestieDB](https://github.com/Questie/Questie)** (GPLv3): datos de misiones, PNJ, objetos y zonas, consultados mientras juegas.
 - **SkillUpForever** (GPLv3): datos de recetas de profesiones, consultados mediante su API pública.
 - **TomTom** y **HereBeDragons**: flecha y posiciones en el mapa.
-- **[WoW Forever Builds](https://wowforeverbuilds.com/guide/shadow-priest-leveling)**: ruta de Sacerdote Sombras para subir solo (17/11/2026).
+- **[WoW Forever Builds](https://wowforeverbuilds.com/guide/shadow-priest-leveling)**: ruta de Sacerdote Sombras para subir solo (17/11/2026), con *Contagio devorador* en lugar de *Alcance de las Sombras* (cambio propio).
 - **[Forever Hispano](https://foreverhispano.com/clases-y-guias/)**: rutas de talentos del resto de clases (guías de clase, revisión 1.1, 07/11/2026).
 - **SendaFH** (GPLv3): identificadores de los talentos de Forever.
 - **Warcraft Wiki** y **Warcraft Tavern**: documentación de la API y de los libros de biblioteca.
