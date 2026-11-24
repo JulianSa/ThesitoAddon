@@ -10,46 +10,47 @@ local _, ns = ...
 -- al 60). Una sola por clase: la más recomendada para subir solo.
 -- Cada paso: { ID del talento, rango al que llega, "nombre" }. El nombre se
 -- usa si el ID no aparece en tu árbol (talentos que Forever ha cambiado).
--- Fuentes: Sacerdote, WoW Forever Builds (guía de subida, 17/11/2026);
+-- Fuentes: Sacerdote, Icy Veins (guía de subida, 17/11/2026);
 -- resto de clases, Forever Hispano (https://foreverhispano.com/clases-y-guias/).
 ---------------------------------------------------------------------------
 ns.Routes = {
     PRIEST = {
         {
-            -- WoW Forever Builds, "Shadow Priest Leveling" (actualizada 17/11/2026):
-            -- https://wowforeverbuilds.com/guide/shadow-priest-leveling
-            -- Hecha para subir solo: varita y Transfusión de espíritu al principio.
-            -- Cambio propio: Contagio devorador 2/2 en lugar de Alcance de las
-            -- Sombras 2/2. La guía usa datos de talentos antiguos y no lo tiene;
-            -- en Forever abarata un 25 % Peste devoradora y la contagia al morir
-            -- (el maná es lo que más frena subiendo solo; el alcance, poco).
+            -- Icy Veins, "Shadow Priest Leveling Guide", ruta "No Respec Path"
+            -- (Anshlun, actualizada 17/11/2026; calculadora con datos de Forever):
+            -- https://www.icy-veins.com/wow-forever/shadow-priest-leveling
+            -- Comparada con Wowhead (Jereico, 08/11), WoW Forever Builds (datos
+            -- antiguos), WoW Handbook y Forever Hispano: es la más reciente, de un
+            -- especialista en Sombras, pensada para subir y la que usa los talentos
+            -- nuevos de Forever (Inspiración macabra, Contagio devorador).
+            -- Único cambio: al 26, el 5.º rango de Explosión mental mejorada en vez
+            -- del 1.º de Enfoque de las Sombras (Icy Veins dice que subiendo apenas
+            -- hace falta golpe). Desbloquea las filas igual y, si ya tienes
+            -- Explosión 5/5, Forma de las Sombras sigue llegando al 42.
             -- Un talento puede salir varias veces: el número es el rango al que llega.
             key = "sombras-subir",
-            title = "Sombras para subir solo · basada en WoW Forever Builds",
+            title = "Sombras para subir solo · Icy Veins",
             steps = {
-                { 14524, 2, "Especialización en varitas" },
-                { 15270, 5, "Transfusión de espíritu" },
-                { 15275, 2, "Palabra de las Sombras: dolor mejorada" },
-                { 15260, 3, "Enfoque de las Sombras" },
-                { 15407, 1, "Tortura mental" },
-                { 1225139, 2, "Tortura mental mejorada" },
-                { 15273, 2, "Explosión mental mejorada" },
-                { 15286, 1, "Abrazo vampírico" },
-                { 15257, 3, "Tejido de las Sombras" },
-                { 15273, 3, "Explosión mental mejorada" },
-                { 15487, 1, "Silencio" },
-                { 15273, 5, "Explosión mental mejorada" },
-                { 1309950, 2, "Contagio devorador" },
-                { 15259, 5, "Oscuridad" },
-                { 15473, 1, "Forma de las Sombras" },
-                { 15260, 5, "Enfoque de las Sombras" },
-                { 15326, 5, "Desmayo" },
-                { 15392, 2, "Alarido psíquico mejorado" },
-                { 1225132, 3, "Disciplinas gemelas" },
-                { 18551, 2, "Fuerza mental" },
-                { 1225132, 5, "Disciplinas gemelas" },
-                { 18551, 3, "Fuerza mental" },
-                { 14748, 1, "Palabra de poder: escudo mejorada" },
+                { 14524, 2, "Especialización en varitas" },          -- 10-11
+                { 15270, 5, "Transfusión de espíritu" },             -- 12-16
+                { 15275, 2, "Palabra de las Sombras: dolor mejorada" }, -- 17-18
+                { 15273, 3, "Explosión mental mejorada" },           -- 19-21
+                { 15407, 1, "Tortura mental" },                      -- 22
+                { 1225139, 2, "Tortura mental mejorada" },           -- 23-24
+                { 15273, 5, "Explosión mental mejorada" },           -- 25-26
+                { 15286, 1, "Abrazo vampírico" },                    -- 27
+                { 1326159, 5, "Inspiración macabra" },               -- 28-32
+                { 1309950, 2, "Contagio devorador" },                -- 33-34
+                { 15257, 2, "Tejido de las Sombras" },               -- 35-36
+                { 15259, 5, "Oscuridad" },                           -- 37-41
+                { 15473, 1, "Forma de las Sombras" },                -- 42
+                { 1225132, 5, "Disciplinas gemelas" },               -- 43-47
+                { 18551, 3, "Fuerza mental" },                       -- 48-50
+                { 14521, 3, "Meditación" },                          -- 51-53
+                { 14913, 3, "Enfoque crepuscular" },                 -- 54-56
+                { 15257, 3, "Tejido de las Sombras" },               -- 57
+                { 15487, 1, "Silencio" },                            -- 58
+                { 15260, 2, "Enfoque de las Sombras" },              -- 59-60
             },
         },
     },

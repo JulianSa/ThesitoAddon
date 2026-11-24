@@ -1139,7 +1139,7 @@ local CREDITS = {
     "• |cffffffffTomTom|r y su librería |cffffffffHereBeDragons|r: la flecha y las posiciones para las líneas del mapa.",
     "",
     "|cffffd200Rutas de talentos|r",
-    "• |cffffffffWoW Forever Builds|r (wowforeverbuilds.com): la ruta de Sacerdote Sombras para subir solo (guía de subida, 17/11/2026), con Contagio devorador en lugar de Alcance de las Sombras (cambio propio).",
+    "• |cffffffffIcy Veins|r (icy-veins.com, guía de Anshlun, 17/11/2026): la ruta de Sacerdote Sombras para subir solo, con un cambio propio al nivel 26 (Explosión mental mejorada 5/5 en vez de Enfoque de las Sombras 1/5). Comparada con las de Wowhead, WoW Forever Builds y WoW Handbook.",
     "• |cffffffffForever Hispano|r (foreverhispano.com): las rutas del resto de clases, de sus guías de clase (revisión 1.1, 07/11/2026).",
     "• Los identificadores de cada talento se sacaron del árbol que publica el addon |cffffffffSendaFH|r (GPLv3).",
     "",
