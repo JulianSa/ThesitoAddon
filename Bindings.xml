@@ -1,0 +1,5 @@
+<Bindings>
+    <Binding name="THESITOADDON_TOGGLE" header="THESITOADDON" category="ADDONS">
+        ThesitoAddon_Toggle()
+    </Binding>
+</Bindings>

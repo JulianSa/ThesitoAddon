@@ -1,0 +1,33 @@
+name: Publicar versión
+
+# Cada vez que se sube una etiqueta de versión (por ejemplo v0.7.0) se crea
+# una versión en GitHub con el zip del addon listo para instalar.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  zip:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Preparar el zip del addon
+        run: |
+          mkdir -p build/ThesitoAddon
+          git archive --format=tar HEAD | tar -x -C build/ThesitoAddon
+          cd build
+          zip -r "../ThesitoAddon-${GITHUB_REF_NAME}.zip" ThesitoAddon
+
+      - name: Crear la versión con el zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "ThesitoAddon-${GITHUB_REF_NAME}.zip" \
+            --title "Thesito Addon ${GITHUB_REF_NAME}" \
+            --notes "Descarga **ThesitoAddon-${GITHUB_REF_NAME}.zip** (abajo, en *Assets*) y sigue las instrucciones del README o de LEEME.txt."
