@@ -172,6 +172,12 @@ SlashCmdList.THESITOADDON = function(msg)
         ns.UI.Open("creditos")
     elseif msg == "opciones" or msg == "config" then
         ns.UI.Open("opciones")
+    elseif msg == "quien" or msg == "quién" then
+        if ns.IsOn("comm") then
+            ns.Print(("tienes la versión %s. También lo tienen (de tu hermandad o grupo): %s."):format(ns.Version(), ns.PeersText()))
+        else
+            ns.Print("no estás compartiendo que usas Thesito; actívalo en Opciones para ver quién más lo tiene.")
+        end
     elseif msg == "rumbo" or msg == "quitar" then
         ns.Nav.Clear()
     elseif msg == "ordenar" then
@@ -234,6 +240,104 @@ function ns.Debug()
     end
     ns.db.lastDebug = { when = date and date("%Y-%m-%d %H:%M:%S") or "?", lines = saved }
     ns.Print("|cff9d9d9d(guardado con más detalle; haz /reload para que se escriba en el archivo)|r")
+end
+
+---------------------------------------------------------------------------
+-- Otros jugadores con Thesito
+-- Los addons pueden mandarse mensajes invisibles. Thesito dice a tu
+-- hermandad y a tu grupo qué versión tiene (solo eso: el juego añade el
+-- nombre del personaje) y apunta quién más lo usa, sin guardarlo. Si alguien
+-- tiene una versión más nueva, te avisa una vez. Se apaga en Opciones.
+---------------------------------------------------------------------------
+
+local COMM_PREFIX = "Thesito"
+local DOWNLOAD_URL = "https://github.com/JulianSa/ThesitoAddon/releases/latest"
+ns.peers = {} -- [nombre] = { version, via } (solo esta sesión)
+local myVersion
+local warnedNewer = false
+local lastHello = {}
+
+function ns.Version()
+    if not myVersion then
+        local get = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
+        myVersion = (get and ns.call(get, ADDON, "Version")) or "0"
+    end
+    return myVersion
+end
+
+-- ¿Es la versión a más nueva que la b? (compara número a número: 0.9.10 > 0.9.3)
+local function Newer(a, b)
+    local pa, pb = {}, {}
+    for n in tostring(a):gmatch("%d+") do pa[#pa + 1] = tonumber(n) end
+    for n in tostring(b):gmatch("%d+") do pb[#pb + 1] = tonumber(n) end
+    for i = 1, math.max(#pa, #pb) do
+        local x, y = pa[i] or 0, pb[i] or 0
+        if x ~= y then return x > y end
+    end
+    return false
+end
+
+local function Send(kind, channel, target)
+    if not (ns.IsOn("comm") and C_ChatInfo and C_ChatInfo.SendAddonMessage) then return end
+    ns.call(C_ChatInfo.SendAddonMessage, COMM_PREFIX, kind .. ":" .. ns.Version(), channel, target)
+end
+
+-- Saluda a la hermandad o al grupo (como mucho una vez por minuto a cada uno).
+local function Hello(channel)
+    if not channel then return end
+    local now = GetTime()
+    if lastHello[channel] and now - lastHello[channel] < 60 then return end
+    lastHello[channel] = now
+    Send("HELLO", channel)
+end
+
+local function GroupChannel()
+    if IsInGroup and LE_PARTY_CATEGORY_INSTANCE and IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then return "INSTANCE_CHAT" end
+    if IsInRaid and IsInRaid() then return "RAID" end
+    if IsInGroup and IsInGroup() then return "PARTY" end
+end
+
+ns.On("PLAYER_LOGIN", function()
+    if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
+        ns.call(C_ChatInfo.RegisterAddonMessagePrefix, COMM_PREFIX)
+    end
+end)
+
+local greeted = false
+ns.On("PLAYER_ENTERING_WORLD", function()
+    if greeted then return end
+    greeted = true
+    C_Timer.After(15, function()
+        if IsInGuild and IsInGuild() then Hello("GUILD") end
+        Hello(GroupChannel())
+    end)
+end)
+
+ns.On("GROUP_ROSTER_UPDATE", function()
+    C_Timer.After(3, function() Hello(GroupChannel()) end)
+end)
+
+ns.On("CHAT_MSG_ADDON", function(prefix, message, channel, sender)
+    if prefix ~= COMM_PREFIX or not ns.IsOn("comm") then return end
+    if issecretvalue and (issecretvalue(message) or issecretvalue(sender)) then return end
+    local kind, version = tostring(message):match("^(%u+):(.+)$")
+    if not kind or type(sender) ~= "string" then return end
+    local name = Ambiguate and Ambiguate(sender, "short") or sender
+    if name == UnitName("player") then return end
+    ns.peers[name] = { version = version, via = channel }
+    if kind == "HELLO" then Send("HI", "WHISPER", sender) end
+    if not warnedNewer and Newer(version, ns.Version()) then
+        warnedNewer = true
+        ns.Print(("hay una versión nueva de Thesito (%s; la tiene %s). Descárgala de %s"):format(version, name, DOWNLOAD_URL))
+    end
+end)
+
+-- "Nombre (0.9.3), Otro (0.9.1)" o "nadie todavía".
+function ns.PeersText()
+    local list = {}
+    for name, p in pairs(ns.peers) do list[#list + 1] = ("%s (%s)"):format(name, tostring(p.version)) end
+    table.sort(list)
+    return #list > 0 and table.concat(list, ", ") or "nadie todavía"
 end
 
 ---------------------------------------------------------------------------

@@ -87,6 +87,10 @@ local OPTIONS = {
       tip = "Abre la pestaña Instructor al lado de la ventana del instructor de tu clase.",
       get = function() return ns.db.autoOpenTrainer ~= false end,
       set = function(on) ns.db.autoOpenTrainer = on end },
+    { key = "comm", label = "Decir a tu hermandad y grupo que usas Thesito",
+      tip = function()
+          return "Solo se envía la versión (el juego añade el nombre de tu personaje). Así ves quién más lo tiene (/thesito quien) y te avisa si alguien tiene una versión más nueva.\n\n|cffffd200Lo tienen:|r " .. ns.PeersText()
+      end },
     { label = "Botón del minimapa",
       tip = "Si lo quitas, abre Thesito con /thesito.",
       get = function() return not ns.db.hideMinimap end,
@@ -1278,10 +1282,11 @@ local function Create()
             c.opt = opt
             c:SetScript("OnClick", function(self) SetOption(opt, self:GetChecked() and true or false) end)
             c:SetScript("OnEnter", function(self)
-                if not opt.tip then return end
+                local tip = type(opt.tip) == "function" and opt.tip() or opt.tip
+                if not tip then return end
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                 GameTooltip:SetText(opt.label)
-                GameTooltip:AddLine(opt.tip, 1, 1, 1, true)
+                GameTooltip:AddLine(tip, 1, 1, 1, true)
                 GameTooltip:Show()
             end)
             c:SetScript("OnLeave", GameTooltip_Hide)
