@@ -59,6 +59,13 @@ local PROFESSION_TOOLS = {
     [9149] = 171,                                                   -- Piedra filosofal
 }
 
+-- Cebos de pesca (se ponen en la caña): van con las cosas de Pesca.
+local FISHING_LURES = {
+    [6529] = true, [6530] = true, [6532] = true, [6533] = true,     -- Adorno lustroso, Gusanos nocturnos, Adornos brillantes, Atrayente acuadinámico
+    [6811] = true, [7307] = true, [34861] = true,                   -- Lente acuadinámica, Gusano carnívoro, Anzuelo afilado
+}
+for id in pairs(FISHING_LURES) do PROFESSION_TOOLS[id] = 356 end
+
 ---------------------------------------------------------------------------
 -- Ayudas
 ---------------------------------------------------------------------------
@@ -609,6 +616,7 @@ local function Classify(e, ctx)
     end
     if cls == CLASS_RECIPE then
         local skill = RECIPE_SKILL[sub]
+        e.skill = skill
         if skill and not profs[skill] then
             e.group, e.tag, e.note = "otraprof", "receta ajena", "Receta de una profesión que no tienes: véndela o súbela a subasta."
         else
@@ -637,6 +645,7 @@ local function Classify(e, ctx)
         local size = slots and (" de %d casillas"):format(slots) or ""
         local Name = special.name:sub(1, 1):upper() .. special.name:sub(2)
         local tag = slots and ("%d · %s"):format(slots, special.name) or special.name
+        e.skill = special.skill
         if special.reagent then
             local current = ctx.reagentSlots
             if current == 0 then
@@ -675,10 +684,13 @@ local function Classify(e, ctx)
     local toolSkill = PROFESSION_TOOLS[e.itemID] or ((cls == CLASS_WEAPON and sub == WEAPON_FISHING_POLE) and 356) or nil
     if toolSkill then
         local name = SKILL_NAME[toolSkill] or "una profesión"
+        local what = FISHING_LURES[e.itemID] and "Cebo de pesca (se pone en la caña)" or ("Herramienta de " .. name)
+        e.skill = toolSkill
         if profs[toolSkill] then
-            e.group, e.tag, e.note = "profesion", name, ("Herramienta de %s: guárdala."):format(name)
+            e.group, e.tag, e.note = "profesion", name, what .. ": guárdalo."
         else
-            e.group, e.tag, e.note = "otraprof", "herramienta", ("Herramienta de %s, que no tienes: guárdala si la vas a aprender; si no, véndela."):format(name)
+            e.group, e.tag, e.note = "otraprof", FISHING_LURES[e.itemID] and "cebo" or "herramienta",
+                ("%s, y no tienes %s: guárdalo si la vas a aprender; si no, véndelo."):format(what, name)
         end
         return
     end
@@ -699,16 +711,19 @@ local function Classify(e, ctx)
     -- recetas de SkillUpForever; si no las hay, por el tipo de material.
     local users = cls ~= CLASS_CONSUMABLE and ReagentUsers(e.itemID)
     if users then
-        local others = {}
+        local others, first = {}, nil
         for skill in pairs(users) do
             if profs[skill] then
                 local name = SKILL_NAME[skill] or "tu profesión"
+                e.skill = skill
                 e.group, e.tag, e.note = "profesion", name, ("Lo usas en %s: guárdalo."):format(name)
                 return
             end
             others[#others + 1] = SKILL_NAME[skill] or ("profesión " .. skill)
+            if not first or skill < first then first = skill end
         end
         if cls == CLASS_TRADEGOODS then
+            e.skill = first
             table.sort(others)
             e.group, e.tag, e.note = "otraprof", "material", ("Lo usan %s, que no tienes: véndelo o súbelo a subasta."):format(table.concat(others, ", "))
             return
@@ -718,10 +733,12 @@ local function Classify(e, ctx)
         for _, skill in ipairs(MATERIAL_USERS[sub] or {}) do
             if profs[skill] then
                 local name = SKILL_NAME[skill] or "tu profesión"
+                e.skill = skill
                 e.group, e.tag, e.note = "profesion", name, ("Lo usas en %s: guárdalo."):format(name)
                 return
             end
         end
+        e.skill = (MATERIAL_USERS[sub] or {})[1]
         e.group, e.tag, e.note = "otraprof", "material", "Material de una profesión que no tienes: véndelo o súbelo a subasta."
         return
     end
@@ -805,6 +822,121 @@ function B.Analyze()
 
     sum.used, sum.total, sum.bags, sum.withQuestie = used, total, ctx.bags, ctx.db ~= nil
     return list, sum
+end
+
+---------------------------------------------------------------------------
+-- Liberar una casilla
+-- Como DeleteCheapestItem, pero solo entre lo que Thesito ya pone en "Para
+-- vender o tirar" (nunca materiales de tus profesiones ni cosas de misiones):
+-- el montón que menos vale. Con un vendedor abierto lo vende; si no, lo
+-- borra. Siempre pregunta antes.
+---------------------------------------------------------------------------
+
+-- El montón de "Para vender o tirar" que menos vale, o nil.
+function B.FreeSlotCandidate()
+    local list = B.Analyze()
+    local byItem = {}
+    for _, e in ipairs(list) do byItem[e.itemID] = e end
+    local best
+    for bag = 0, B.LAST_BAG do
+        for slot = 1, (call(C_Container.GetContainerNumSlots, bag) or 0) do
+            local info = call(C_Container.GetContainerItemInfo, bag, slot)
+            local e = info and info.itemID and byItem[info.itemID]
+            if e and e.group == "tirar" and not info.isLocked and info.itemID ~= 6948 then
+                local price = select(11, call(C_Item.GetItemInfo, info.itemID)) or 0
+                local value = info.hasNoValue and 0 or price * (info.stackCount or 1)
+                local c = {
+                    bag = bag, slot = slot, itemID = info.itemID, link = info.hyperlink,
+                    count = info.stackCount or 1, value = value, quality = info.quality or 0, note = e.note,
+                }
+                if not best or c.value < best.value or (c.value == best.value and c.quality < best.quality) then
+                    best = c
+                end
+            end
+        end
+    end
+    return best
+end
+
+-- ¿Sigue ahí lo mismo que se eligió? (por si algo se ha movido mientras
+-- preguntábamos)
+local function StillThere(c)
+    if GetCursorInfo() then return false end
+    local info = call(C_Container.GetContainerItemInfo, c.bag, c.slot)
+    return info ~= nil and not info.isLocked and info.itemID == c.itemID and (info.stackCount or 1) == c.count
+end
+
+local function MerchantOpen()
+    return MerchantFrame ~= nil and MerchantFrame:IsShown()
+end
+
+local function DoFreeSlot(c)
+    if not StillThere(c) then
+        ns.Print("ese objeto se ha movido; vuelve a pulsar el botón.")
+        return
+    end
+    if MerchantOpen() and c.value > 0 then
+        C_Container.UseContainerItem(c.bag, c.slot)
+        ns.Print(("vendido: %s por %s."):format(c.link or "?", ns.Money(c.value)))
+        return
+    end
+    C_Container.PickupContainerItem(c.bag, c.slot)
+    local kind, id = GetCursorInfo()
+    if kind ~= "item" or id ~= c.itemID then
+        ClearCursor()
+        ns.Print("no he podido coger ese objeto; no he borrado nada.")
+        return
+    end
+    DeleteCursorItem()
+    if GetCursorInfo() then
+        ClearCursor()
+        ns.Print("el juego no ha dejado borrarlo.")
+        return
+    end
+    ns.Print(("borrado: %s."):format(c.link or "?"))
+end
+
+StaticPopupDialogs.THESITO_FREE_SLOT = {
+    text = "%s",
+    button1 = YES or "Sí",
+    button2 = NO or "No",
+    OnAccept = function(_, data) if data then DoFreeSlot(data) end end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    showAlert = true,
+    preferredIndex = 3,
+}
+
+-- Qué haría el botón ahora mismo (para su ayuda).
+function B.FreeSlotText(c)
+    if not c then return "No hay nada en «Para vender o tirar»." end
+    local what = (c.link or "?") .. (c.count > 1 and (" x" .. c.count) or "")
+    if MerchantOpen() and c.value > 0 then
+        return ("Vendería %s por %s."):format(what, ns.Money(c.value))
+    end
+    return ("Borraría %s (en el vendedor vale %s)."):format(what, c.value > 0 and ns.Money(c.value) or "nada")
+end
+
+function B.FreeSlot()
+    if InCombatLockdown() then
+        ns.Print("en combate no; espera a terminar.")
+        return
+    end
+    local c = B.FreeSlotCandidate()
+    if not c then
+        ns.Print("no hay nada en «Para vender o tirar» que liberar.")
+        return
+    end
+    local what = (c.link or "?") .. (c.count > 1 and (" x" .. c.count) or "")
+    local text
+    if MerchantOpen() and c.value > 0 then
+        text = ("¿Vender %s por %s?\n\n%s"):format(what, ns.Money(c.value), c.note or "")
+    else
+        text = ("¿Borrar %s?\n\nEn el vendedor vale %s. %s\n\nNo se puede deshacer."):format(what,
+            c.value > 0 and ns.Money(c.value) or "nada", c.note or "")
+    end
+    StaticPopup_Show("THESITO_FREE_SLOT", text, nil, c)
 end
 
 -- Para /thesito debug: lo que dice el juego de cada profesión y de cada
@@ -916,6 +1048,8 @@ local function SortKeys(list)
         local r = rank[group] or rank.resto
         return {
             rank = r, section = section[r],
+            -- Dentro de cada sección, lo de la misma profesión va junto (la caña y su cebo...).
+            skill = e and e.skill or 0,
             class = e and e.classID or 99, sub = e and e.subclassID or 99,
             quality = e and e.quality or 0, name = e and e.name or "",
         }
@@ -1106,6 +1240,7 @@ local function Less(a, b)
     local keys = sorter.keys
     local ka, kb = keys[a] or keys.default, keys[b] or keys.default
     if ka.rank ~= kb.rank then return ka.rank < kb.rank end
+    if ka.skill ~= kb.skill then return ka.skill < kb.skill end
     if ka.class ~= kb.class then return ka.class < kb.class end
     if ka.sub ~= kb.sub then return ka.sub < kb.sub end
     if ka.quality ~= kb.quality then return ka.quality > kb.quality end

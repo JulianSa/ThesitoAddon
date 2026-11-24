@@ -176,6 +176,8 @@ SlashCmdList.THESITOADDON = function(msg)
         ns.Nav.Clear()
     elseif msg == "ordenar" then
         ns.Bags.Sort()
+    elseif msg == "liberar" then
+        ns.Bags.FreeSlot()
     elseif msg == "mochila" then
         ns.BagWindow.Toggle()
     elseif msg == "centrar bolsas" then

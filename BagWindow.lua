@@ -249,6 +249,7 @@ end
 local function Less(a, b)
     local ka, kb = a.key, b.key
     if ka.rank ~= kb.rank then return ka.rank < kb.rank end
+    if (ka.skill or 0) ~= (kb.skill or 0) then return (ka.skill or 0) < (kb.skill or 0) end
     if ka.class ~= kb.class then return ka.class < kb.class end
     if ka.sub ~= kb.sub then return ka.sub < kb.sub end
     if ka.quality ~= kb.quality then return ka.quality > kb.quality end
@@ -417,7 +418,8 @@ Layout = function()
 
     content:SetSize(width, math.max(1, y))
     frame:SetSize(width + PAD * 2, TOP + y + FOOTER)
-    slotsText:SetText(("|cffffd200Casillas:|r %d de %d ocupadas"):format(used, total))
+    slotsText:SetText(("|cffffd200Casillas:|r %d/%d"):format(used, total))
+    if W.freeButton then W.freeButton:SetShown(ns.IsOn("freeSlot")) end
     moneyText:SetText(ns.Money(GetMoney and GetMoney() or 0))
 end
 
@@ -495,6 +497,38 @@ local function Create()
 
     slotsText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     slotsText:SetPoint("BOTTOMLEFT", PAD + 2, 12)
+
+    -- "Liberar casilla": borra (o vende, con un vendedor abierto) el montón
+    -- de "Para vender o tirar" que menos vale. Siempre pregunta antes.
+    -- Clic derecho: abre DeleteCheapestItem, si lo tienes.
+    local freeButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    freeButton:SetSize(108, 20)
+    freeButton:SetPoint("BOTTOM", 0, 8)
+    freeButton:SetNormalFontObject(GameFontNormalSmall)
+    freeButton:SetHighlightFontObject(GameFontHighlightSmall)
+    freeButton:SetText("Liberar casilla")
+    freeButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    freeButton:SetScript("OnClick", function(_, mouse)
+        if mouse == "RightButton" and SlashCmdList and SlashCmdList.DCI then
+            SlashCmdList.DCI("")
+        else
+            ns.Bags.FreeSlot()
+        end
+    end)
+    freeButton:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText("Liberar casilla")
+        GameTooltip:AddLine("Lo que menos vale de «Para vender o tirar» (nunca cosas de misiones ni de tus profesiones). Con un vendedor abierto lo vende; si no, lo borra. Siempre te pregunta antes.", 1, 1, 1, true)
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine(ns.Bags.FreeSlotText(ns.Bags.FreeSlotCandidate()), 1, 0.82, 0, true)
+        if SlashCmdList and SlashCmdList.DCI then
+            GameTooltip:AddLine("Clic derecho: abre DeleteCheapestItem.", 0.7, 0.7, 0.7, true)
+        end
+        GameTooltip:Show()
+    end)
+    freeButton:SetScript("OnLeave", GameTooltip_Hide)
+    freeButton:SetShown(ns.IsOn("freeSlot"))
+    W.freeButton = freeButton
     moneyText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     moneyText:SetPoint("BOTTOMRIGHT", -PAD - 2, 12)
 
