@@ -756,11 +756,12 @@ end
 -- Pestaña Misiones
 ---------------------------------------------------------------------------
 
-local function DifficultyColor(level)
-    local c = level and GetQuestDifficultyColor and GetQuestDifficultyColor(level)
-    if c and c.r then return ("|cff%02x%02x%02x"):format(c.r * 255, c.g * 255, c.b * 255) end
-    return "|cffffffff"
+-- Explicación del tipo y del color de una misión, para su ayuda.
+local function QuestTypeTip(questID)
+    local _, tagText = ns.Quests.Tag(questID)
+    return tagText and (tagText .. "\n") or ""
 end
+local COLOR_HELP = "|cff9d9d9dEl color es la dificultad: gris (ya casi no da experiencia), verde, amarillo (tu nivel), naranja y rojo (muy difícil).|r"
 
 local lastDetail
 local function ShowQuestDetail(questID)
@@ -830,10 +831,10 @@ local function FillQuests()
             if nav and nav.questID == q.questID then right = "|cffc080ff» rumbo|r  " .. right end
             local questID = q.questID
             SetRow(i, {
-                level = q.level and (DifficultyColor(q.level) .. "[" .. q.level .. "]|r") or "",
+                level = ns.Quests.LevelText(q.questID, q.level),
                 name = q.title or "?", right = right,
                 bg = q.complete and { 0.25, 1, 0.25, 0.10 } or nil,
-                tipTitle = q.title, tip = "Clic para ver qué hacer y dónde.",
+                tipTitle = q.title, tip = QuestTypeTip(questID) .. "Clic para ver qué hacer y dónde.\n" .. COLOR_HELP,
                 onClick = function()
                     selected.misiones = questID
                     UI.Refresh()
@@ -861,6 +862,8 @@ end
 
 local function QuestTip(info)
     local t = { ("Misión de nivel %d (se coge desde el nivel %d)."):format(info.level, info.minLevel) }
+    local _, tagText = ns.Quests.Tag(info.questID)
+    if tagText then t[#t + 1] = "|cffff9933" .. tagText .. "|r" end
     local s = info.starter
     if s and s.isItem then
         t[#t + 1] = "La empieza un objeto: " .. s.name .. "."
@@ -870,6 +873,7 @@ local function QuestTip(info)
     if info.needs then t[#t + 1] = "|cffff9933Antes tienes que hacer «" .. info.needs .. "».|r" end
     if info.rewards and #info.rewards > 0 then t[#t + 1] = "Recompensas: " .. table.concat(info.rewards, ", ") .. "." end
     t[#t + 1] = "Clic: ver toda la información de la misión."
+    t[#t + 1] = COLOR_HELP
     return table.concat(t, "\n")
 end
 
@@ -909,8 +913,9 @@ local function FillImportant()
     header:SetText(table.concat(lines, "\n"))
 
     local i = 0
+    -- Nivel de la misión con su color de dificultad y su tipo ("[25E]").
     local function LevelTag(info)
-        return (info.minLevel <= level and "|cff40ff40" or "|cff9d9d9d") .. "[" .. info.minLevel .. "]|r"
+        return ns.Quests.LevelText(info.questID, info.level)
     end
     -- Título de sección plegable; devuelve true si está plegada.
     local function Header(title, key)

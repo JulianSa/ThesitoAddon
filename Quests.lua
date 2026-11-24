@@ -93,6 +93,88 @@ end
 -- Lista de tu registro
 ---------------------------------------------------------------------------
 
+---------------------------------------------------------------------------
+-- Nivel y tipo de una misión, como en otros addons: "[25E]" en el color de
+-- su dificultad (gris = ya no da casi experiencia; verde = fácil; amarillo =
+-- de tu nivel; naranja = difícil; rojo = muy difícil). La letra es el tipo:
+-- E élite, D mazmorra, R banda, P JcJ, H heroica, L legendaria.
+---------------------------------------------------------------------------
+
+-- Tipos de misión según el juego (los mismos números que usa Questie).
+local QUEST_TAGS = {
+    [1]  = { "E", "Élite: mejor en grupo, los enemigos son más fuertes." },
+    [41] = { "P", "JcJ: contra otros jugadores." },
+    [62] = { "R", "Banda: para un grupo de banda." },
+    [81] = { "D", "Mazmorra: hay que hacerla dentro de una mazmorra, en grupo." },
+    [83] = { "L", "Legendaria." },
+    [85] = { "H", "Heroica: mazmorra en dificultad heroica." },
+    [88] = { "R", "Banda (10 jugadores)." },
+    [89] = { "R", "Banda (25 jugadores)." },
+}
+
+local tagCache, tagTries = {}, {}
+local tagRetry = false
+-- Letra y explicación del tipo de misión, o nil si es normal. El juego no da
+-- nada para las normales, pero a veces tampoco para las demás hasta que carga
+-- el dato: se pregunta otra vez al segundo y, si sigue sin nada, es normal.
+function Q.Tag(questID)
+    if not questID then return nil end
+    local cached = tagCache[questID]
+    if cached ~= nil then return cached and cached[1], cached and cached[2] end
+    if not (C_QuestLog and C_QuestLog.GetQuestTagInfo) then return nil end
+    local info = call(C_QuestLog.GetQuestTagInfo, questID)
+    if type(info) ~= "table" then
+        local now = GetTime and GetTime() or 0
+        local first = tagTries[questID]
+        if not first then
+            tagTries[questID] = now
+        elseif now - first >= 1 then
+            tagCache[questID] = false
+        end
+        if not first and not tagRetry then
+            tagRetry = true
+            C_Timer.After(1, function()
+                tagRetry = false
+                ns.RequestRefresh()
+            end)
+        end
+        return nil
+    end
+    local tag = QUEST_TAGS[info.tagID]
+    if not tag and info.isElite then tag = QUEST_TAGS[1] end
+    tagCache[questID] = tag or false
+    if tag then return tag[1], tag[2] end
+end
+
+-- Color de dificultad de una misión de ese nivel para ti.
+function Q.DifficultyColor(level)
+    if type(level) ~= "number" or level <= 0 then return "|cffffffff" end
+    if GetQuestDifficultyColor then
+        local c = call(GetQuestDifficultyColor, level)
+        if type(c) == "table" and c.r then
+            return ("|cff%02x%02x%02x"):format(c.r * 255, c.g * 255, c.b * 255)
+        end
+    end
+    local me = UnitLevel("player") or 1
+    local diff = level - me
+    if diff >= 5 then return "|cffff1a1a" end   -- rojo
+    if diff >= 3 then return "|cffff8040" end   -- naranja
+    if diff >= -2 then return "|cffffff00" end  -- amarillo
+    local gray = (GetQuestGreenRange and call(GetQuestGreenRange))
+        or (me <= 5 and 5) or (me <= 39 and 5 + math.floor(me / 10)) or (me <= 59 and 1 + math.floor(me / 5)) or 9
+    if -diff <= gray then return "|cff40c040" end -- verde
+    return "|cff808080"                           -- gris
+end
+
+-- "[25E]" con su color.
+function Q.LevelText(questID, level)
+    local letter = Q.Tag(questID)
+    if type(level) ~= "number" or level <= 0 then
+        return letter and ("|cffffffff[" .. letter .. "]|r") or ""
+    end
+    return ("%s[%d%s]|r"):format(Q.DifficultyColor(level), level, letter or "")
+end
+
 -- { { header = "Zona" } | { questID, title, level, complete, done, total } ... }
 function Q.List()
     local out, quests, complete = {}, 0, 0
@@ -248,7 +330,14 @@ function Q.Detail(questID)
     local preferZone = (type(zone) == "number" and zone > 0) and zone or nil
     info.title = title
 
-    add(("|cffffd200%s|r%s"):format(title, level and level > 0 and (" |cff9d9d9d(nivel %d)|r"):format(level) or ""))
+    if not (level and level > 0) then
+        local index = call(C_QuestLog.GetLogIndexForQuestID, questID)
+        local logInfo = index and call(C_QuestLog.GetInfo, index)
+        level = logInfo and logInfo.level or level
+    end
+    add(("|cffffd200%s|r %s"):format(title, Q.LevelText(questID, level)))
+    local _, tagText = Q.Tag(questID)
+    if tagText then add("|cffff9933" .. tagText .. "|r") end
     if preferZone then add("|cff9d9d9d" .. Q.ZoneName(preferZone) .. "|r") end
     add("")
 
