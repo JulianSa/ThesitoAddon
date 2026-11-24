@@ -53,8 +53,9 @@ Sin ellos el addon funciona, pero esas partes avisan de que faltan.
 - **[Questie / QuestieDB](https://github.com/Questie/Questie)** (GPLv3): datos de misiones, PNJ, objetos y zonas, consultados mientras juegas.
 - **SkillUpForever** (GPLv3): datos de recetas de profesiones, consultados mediante su API pública.
 - **TomTom** y **HereBeDragons**: flecha y posiciones en el mapa.
-- **[Icy Veins](https://www.icy-veins.com/wow-forever/shadow-priest-leveling)** (Anshlun, 17/11/2026): ruta de Sacerdote Sombras para subir solo, con un cambio propio al nivel 26 (*Explosión mental mejorada* 5/5 en vez de *Enfoque de las Sombras* 1/5). Comparada con las guías de Wowhead, WoW Forever Builds y WoW Handbook.
-- **[Forever Hispano](https://foreverhispano.com/clases-y-guias/)**: rutas de talentos del resto de clases (guías de clase, revisión 1.1, 07/11/2026).
+- **[Icy Veins](https://www.icy-veins.com/wow-forever/)** (noviembre de 2026): rutas de talentos para subir solo de todas las clases, sacadas de sus guías de subida:
+  - Sacerdote Sombras ([Anshlun](https://www.icy-veins.com/wow-forever/shadow-priest-leveling)), con un cambio propio al nivel 26 (*Explosión mental mejorada* 5/5 en vez de *Enfoque de las Sombras* 1/5). Comparada con las guías de Wowhead, WoW Forever Builds, WoW Handbook y Forever Hispano.
+  - Guerrero Armas ([Abide](https://www.icy-veins.com/wow-forever/arms-warrior-leveling)) · Paladín Reprensión ([Meyra](https://www.icy-veins.com/wow-forever/retribution-paladin-leveling)) · Cazador Dominio de bestias ([Impakt](https://www.icy-veins.com/wow-forever/beast-mastery-hunter-leveling)) · Pícaro Combate ([Sellin](https://www.icy-veins.com/wow-forever/combat-rogue-leveling)) · Mago Escarcha ([Teloril](https://www.icy-veins.com/wow-forever/frost-mage-leveling)) · Brujo Aflicción ([Abide](https://www.icy-veins.com/wow-forever/affliction-warlock-leveling)) · Druida Feral ([Meyra](https://www.icy-veins.com/wow-forever/feral-druid-leveling)) · Chamán Mejora ([Wordup](https://www.icy-veins.com/wow-forever/enhancement-shaman-leveling)).
 - **SendaFH** (GPLv3): identificadores de los talentos de Forever.
 - **Warcraft Wiki** y **Warcraft Tavern**: documentación de la API y de los libros de biblioteca.
 - Consejos de instructor, pesos de estadísticas y posiciones de zepelines y barcos: criterio propio (editables en `Data.lua` y `Nav.lua`).
