@@ -1,10 +1,10 @@
 -- Thesito Addon: cómo llegar.
--- Planifica el camino por etapas: zepelín o barco si el destino está en otro
--- continente, vuelo si está lejos y conoces los puntos de vuelo, y a pie el
--- resto. La línea morada (mapa del mundo y minimapa) y la flecha de TomTom
--- apuntan siempre al SIGUIENTE paso; al aterrizar o cambiar de continente se
--- vuelve a calcular. Las posiciones se calculan con HereBeDragons (viene con
--- TomTom), igual que los marcadores de TomTom.
+-- Busca el camino más rápido combinando: a pie, vuelos entre los puntos de
+-- vuelo que conoces y zepelines o barcos. Lo escribe paso a paso y lo dibuja
+-- entero en el mapa del mundo (morado a pie, dorado en vuelo, azul en
+-- zepelín o barco). La línea del minimapa y la flecha de TomTom apuntan al
+-- SIGUIENTE paso; al llegar a él, aterrizar o cambiar de zona se vuelve a
+-- calcular. Las posiciones se calculan con HereBeDragons (viene con TomTom).
 
 local _, ns = ...
 local N = {}
@@ -12,9 +12,22 @@ ns.Nav = N
 
 local call = ns.call
 local LINE_COLOR = { 0.75, 0.45, 1, 0.9 } -- morado de las Sombras
-local FAR = 1200       -- yardas: a partir de aquí miramos si compensa volar
-local FLY_RATIO = 0.6  -- volar compensa si lo que andas es menos del 60 % del camino directo
+local ROUTE_COLORS = {
+    walk = { 0.75, 0.45, 1, 0.9 },  -- a pie
+    fly  = { 1, 0.82, 0.2, 0.9 },   -- en vuelo
+    ride = { 0.35, 0.8, 1, 0.9 },   -- zepelín o barco
+}
 local ARRIVED = 5      -- yardas: has llegado
+
+-- Para comparar caminos (en segundos, aproximado).
+local WALK_SPEED = 7     -- yardas por segundo corriendo
+local MOUNT_SPEED = 11   -- con montura (desde el nivel 40)
+local TERRAIN = 1.3      -- a pie no se va en línea recta
+local FLY_SPEED = 30     -- vuelos
+local FLY_DETOUR = 1.2   -- los vuelos dan algo de rodeo
+local FLY_EXTRA = 30     -- hablar con el maestro, despegar y aterrizar
+local RIDE_TIME = 240    -- esperar el zepelín o el barco y el viaje
+local NEAR = 40          -- yardas: ya estás en esa parada
 
 -- Destino activo:
 -- { zone, x, y, title, questID, kind,      el destino (zona de Questie, x/y en %)
@@ -51,46 +64,37 @@ local CONTINENTS = { [0] = "los Reinos del Este", [1] = "Kalimdor" }
 local function ContinentName(instance) return CONTINENTS[instance] or "otra parte del mundo" end
 
 ---------------------------------------------------------------------------
--- Zepelines y barcos entre continentes (zona = área de Questie, x/y en %)
+-- Zepelines y barcos (zona = área de Questie, x/y en %; posiciones
+-- aproximadas). name = dónde está ese muelle o torre.
 ---------------------------------------------------------------------------
 
 local TRANSPORTS = {
-    { name = "zepelín Orgrimmar - Entrañas", faction = "Horde",
-      a = { zone = 14, x = 50.8, y = 13.6, label = "la torre del zepelín junto a Orgrimmar (Durotar)" },
-      b = { zone = 85, x = 60.7, y = 58.8, label = "la torre del zepelín de Claros de Tirisfal, junto a Entrañas" } },
-    { name = "zepelín Orgrimmar - Grom'gol", faction = "Horde",
-      a = { zone = 14, x = 50.6, y = 12.7, label = "la torre del zepelín junto a Orgrimmar (Durotar)" },
-      b = { zone = 33, x = 31.6, y = 29.1, label = "el Campamento Grom'gol (Vega de Tuercespina)" } },
-    { name = "barco Trinquete - Bahía del Botín",
-      a = { zone = 17, x = 63.7, y = 38.6, label = "el muelle de Trinquete (Los Baldíos)" },
-      b = { zone = 33, x = 25.8, y = 73.1, label = "el muelle de Bahía del Botín (Vega de Tuercespina)" } },
-    { name = "barco Theramore - Menethil", faction = "Alliance",
-      a = { zone = 15, x = 71.6, y = 56.4, label = "el muelle de Theramore (Marjal Revolcafango)" },
-      b = { zone = 11, x = 5.0, y = 63.4, label = "el puerto de Menethil (Los Humedales)" } },
-    { name = "barco Auberdine - Menethil", faction = "Alliance",
-      a = { zone = 148, x = 32.4, y = 43.8, label = "el muelle de Auberdine (Costa Oscura)" },
-      b = { zone = 11, x = 4.6, y = 57.1, label = "el puerto de Menethil (Los Humedales)" } },
+    { kind = "zepelín", faction = "Horde",
+      a = { zone = 14, x = 50.8, y = 13.6, name = "Orgrimmar", label = "la torre del zepelín junto a Orgrimmar (Durotar)" },
+      b = { zone = 85, x = 60.7, y = 58.8, name = "Entrañas", label = "la torre del zepelín de Claros de Tirisfal, junto a Entrañas" } },
+    { kind = "zepelín", faction = "Horde",
+      a = { zone = 14, x = 50.6, y = 12.7, name = "Orgrimmar", label = "la torre del zepelín junto a Orgrimmar (Durotar)" },
+      b = { zone = 33, x = 31.6, y = 29.1, name = "Grom'gol", label = "la torre del zepelín del Campamento Grom'gol (Vega de Tuercespina)" } },
+    { kind = "zepelín", faction = "Horde",
+      a = { zone = 85, x = 61.9, y = 59.0, name = "Entrañas", label = "la torre del zepelín de Claros de Tirisfal, junto a Entrañas" },
+      b = { zone = 33, x = 31.4, y = 30.2, name = "Grom'gol", label = "la torre del zepelín del Campamento Grom'gol (Vega de Tuercespina)" } },
+    { kind = "barco",
+      a = { zone = 17, x = 63.7, y = 38.6, name = "Trinquete", label = "el muelle de Trinquete (Los Baldíos)" },
+      b = { zone = 33, x = 25.8, y = 73.1, name = "Bahía del Botín", label = "el muelle de Bahía del Botín (Vega de Tuercespina)" } },
+    { kind = "barco", faction = "Alliance",
+      a = { zone = 15, x = 71.6, y = 56.4, name = "Theramore", label = "el muelle de Theramore (Marjal Revolcafango)" },
+      b = { zone = 11, x = 5.0, y = 63.4, name = "Menethil", label = "el puerto de Menethil (Los Humedales)" } },
+    { kind = "barco", faction = "Alliance",
+      a = { zone = 148, x = 32.4, y = 43.8, name = "Auberdine", label = "el muelle de Auberdine (Costa Oscura)" },
+      b = { zone = 11, x = 4.6, y = 57.1, name = "Menethil", label = "el puerto de Menethil (Los Humedales)" } },
 }
 
-local function BestTransport(px, py, pinst)
-    local faction = UnitFactionGroup("player")
-    local best
-    for _, t in ipairs(TRANSPORTS) do
-        if not t.faction or t.faction == faction then
-            for _, dir in ipairs({ { t.a, t.b }, { t.b, t.a } }) do
-                local from, to = dir[1], dir[2]
-                local fx, fy, fi = WorldOf(from.zone, from.x, from.y)
-                local tx, ty, ti = WorldOf(to.zone, to.x, to.y)
-                if fx and tx and fi == pinst and ti == target.instance then
-                    local cost = Dist(px, py, fx, fy) + Dist(tx, ty, target.wx, target.wy)
-                    if not best or cost < best.cost then
-                        best = { t = t, from = from, to = to, cost = cost, fx = fx, fy = fy }
-                    end
-                end
-            end
-        end
+-- Posición en el mundo de un muelle o torre (se guarda al calcularla).
+local function DockPos(side)
+    if not side.wx then
+        side.wx, side.wy, side.instance = WorldOf(side.zone, side.x, side.y)
     end
-    return best
+    return side.wx, side.wy, side.instance
 end
 
 ---------------------------------------------------------------------------
@@ -188,74 +192,185 @@ local function KnownFlightMaster(fm)
     return false
 end
 
-local function FlightAdvice(px, py, pinst, tx, ty)
-    if not flightMasters then return nil end
-    local direct = Dist(px, py, tx, ty)
-    if direct < FAR then return nil end
-    local useKnown = ns.db.taxi and #ns.db.taxi > 0
-    local fromFM, toFM, dFrom, dTo
-    for _, fm in ipairs(flightMasters) do
-        if fm.instance == pinst and (not useKnown or KnownFlightMaster(fm)) then
-            local d1 = Dist(px, py, fm.wx, fm.wy)
-            if not fromFM or d1 < dFrom then fromFM, dFrom = fm, d1 end
-            local d2 = Dist(fm.wx, fm.wy, tx, ty)
-            if not toFM or d2 < dTo then toFM, dTo = fm, d2 end
-        end
-    end
-    if not (fromFM and toFM) or fromFM == toFM then return nil end
-    if dFrom + dTo > direct * FLY_RATIO then return nil end
-    return { from = fromFM, to = toFM, direct = direct, known = useKnown }
-end
-
 local function FMText(fm)
     return ("%s (%s %.0f, %.0f)"):format(fm.name, ns.Quests.ZoneName(fm.zone), fm.x, fm.y)
 end
 
 ---------------------------------------------------------------------------
--- El plan: consejos y siguiente paso
+-- El plan: el camino más rápido y el siguiente paso
+-- Paradas posibles: tú, el destino, los maestros de vuelo que conoces y los
+-- muelles y torres de zepelín. Entre dos paradas del mismo continente se
+-- puede ir a pie; entre dos maestros de vuelo, volando; entre los dos lados
+-- de un zepelín o barco, en él. Gana el camino que tarda menos (Dijkstra).
 ---------------------------------------------------------------------------
 
+-- Continentes donde has abierto algún mapa de vuelo (sabemos qué vuelos tienes).
+local function TaxiContinents()
+    local set = {}
+    for _, k in ipairs(ns.db.taxi or {}) do set[k[3]] = true end
+    return set
+end
+
+local function Stops(px, py, pinst)
+    local stops = {
+        { kind = "start", wx = px, wy = py, instance = pinst },
+        { kind = "goal", wx = target.wx, wy = target.wy, instance = target.instance },
+    }
+    local recorded = TaxiContinents()
+    for _, fm in ipairs(flightMasters or {}) do
+        -- Si nunca has abierto un mapa de vuelo en ese continente, no sabemos
+        -- cuáles tienes: los damos por buenos y lo avisamos.
+        local assumed = not recorded[fm.instance]
+        if assumed or KnownFlightMaster(fm) then
+            stops[#stops + 1] = { kind = "fm", fm = fm, wx = fm.wx, wy = fm.wy, instance = fm.instance, assumed = assumed }
+        end
+    end
+    local faction = UnitFactionGroup("player")
+    for _, t in ipairs(TRANSPORTS) do
+        if not t.faction or t.faction == faction then
+            local ax, ay, ai = DockPos(t.a)
+            local bx, by, bi = DockPos(t.b)
+            if ax and bx then
+                local a = { kind = "dock", t = t, side = t.a, wx = ax, wy = ay, instance = ai }
+                local b = { kind = "dock", t = t, side = t.b, wx = bx, wy = by, instance = bi }
+                a.pair, b.pair = b, a
+                stops[#stops + 1] = a
+                stops[#stops + 1] = b
+            end
+        end
+    end
+    return stops
+end
+
+-- Cuánto se tarda de una parada a otra y cómo (o nil si no se puede).
+local function Leg(a, b, speed)
+    if a.kind == "dock" and a.pair == b then return RIDE_TIME, "ride" end
+    if a.instance ~= b.instance then return nil end
+    local d = Dist(a.wx, a.wy, b.wx, b.wy)
+    local cost, how = d * TERRAIN / speed, "walk"
+    if a.kind == "fm" and b.kind == "fm" then
+        local fly = d * FLY_DETOUR / FLY_SPEED + FLY_EXTRA
+        if fly < cost then cost, how = fly, "fly" end
+    end
+    return cost, how
+end
+
+-- Camino más rápido de tu posición al destino: { { stop, how }, ... }, segundos.
+local function BestPath(stops)
+    local speed = (UnitLevel("player") or 1) >= 40 and MOUNT_SPEED or WALK_SPEED
+    local n = #stops
+    local time, prev, how, done = {}, {}, {}, {}
+    for i = 1, n do time[i] = math.huge end
+    time[1] = 0
+    for _ = 1, n do
+        local u, best = nil, math.huge
+        for i = 1, n do
+            if not done[i] and time[i] < best then u, best = i, time[i] end
+        end
+        if not u or u == 2 then break end
+        done[u] = true
+        for v = 2, n do
+            if not done[v] then
+                local cost, h = Leg(stops[u], stops[v], speed)
+                if cost and best + cost < time[v] then time[v], prev[v], how[v] = best + cost, u, h end
+            end
+        end
+    end
+    if time[2] == math.huge then return nil end
+    local path, i = {}, 2
+    while i do
+        table.insert(path, 1, { stop = stops[i], how = how[i] })
+        i = prev[i]
+    end
+    return path, time[2]
+end
+
+-- arrival: es donde te deja el zepelín o el barco (vas montado en él).
+local function StopPoint(stop, arrival)
+    if stop.kind == "fm" then
+        return { zone = stop.fm.zone, x = stop.fm.x, y = stop.fm.y, title = "Maestro de vuelo " .. stop.fm.name }
+    elseif stop.kind == "dock" then
+        local title = arrival and ("Bajar del " .. stop.t.kind .. " en " .. stop.side.name)
+            or (stop.t.kind .. " a " .. stop.pair.side.name)
+        return { zone = stop.side.zone, x = stop.side.x, y = stop.side.y, title = title, arrival = arrival }
+    end
+end
+
+-- Los pasos en palabras.
+local function Describe(path, total)
+    local steps, n, assumed = {}, 0, false
+    local minutes = math.max(1, math.floor(total / 60 + 0.5))
+    local function step(text)
+        n = n + 1
+        steps[#steps + 1] = ("%d. %s"):format(n, text)
+    end
+    if #path == 2 then
+        local d = Dist(path[1].stop.wx, path[1].stop.wy, path[2].stop.wx, path[2].stop.wy)
+        steps[1] = ("Ve a pie o en montura: unas %d yardas en línea recta (unos %d min)."):format(math.floor(d), minutes)
+        if d > 1500 then steps[2] = "Ve por los caminos: la línea va en línea recta y no esquiva montañas." end
+        return steps
+    end
+    steps[1] = ("Unos %d minutos de viaje:"):format(minutes)
+    for i = 2, #path do
+        local from, to, how = path[i - 1].stop, path[i].stop, path[i].how
+        local nextHow = path[i + 1] and path[i + 1].how
+        local d = Dist(from.wx, from.wy, to.wx, to.wy)
+        if how == "walk" then
+            if to.kind == "goal" then
+                step(("Desde ahí, a pie hasta el destino (unas %d yardas)."):format(math.floor(d)))
+                if d > 1500 then steps[#steps + 1] = "    Ve por los caminos: la línea va en línea recta." end
+            elseif d > NEAR then
+                if to.kind == "fm" and nextHow == "fly" then
+                    step("Ve al maestro de vuelo " .. FMText(to.fm) .. ".")
+                elseif to.kind == "dock" then
+                    step(("Ve a %s y espera el %s a %s."):format(to.side.label, to.t.kind, to.pair.side.name))
+                else
+                    step("Ve a " .. (to.fm and FMText(to.fm) or "la siguiente parada") .. ".")
+                end
+            end
+        elseif how == "fly" then
+            local maybe = (from.assumed or to.assumed) and " (si ya tienes ese punto de vuelo)" or ""
+            assumed = assumed or maybe ~= ""
+            step("Vuela hasta " .. FMText(to.fm) .. maybe .. ".")
+        elseif how == "ride" then
+            step(("Sube al %s a %s y bájate en %s."):format(to.t.kind, to.side.name, to.side.label))
+        end
+    end
+    if assumed then
+        steps[#steps + 1] = "|cff9d9d9dNo sé qué vuelos tienes en este continente: abre una vez el mapa de vuelo en cualquier maestro de vuelo y lo apunto.|r"
+    end
+    return steps
+end
+
+-- Devuelve los pasos, el siguiente punto al que ir (o nil: el destino) y la
+-- ruta para dibujarla { { wx, wy, instance, how }, ... }.
 local function Plan()
     local hbd = HBD()
     local px, py, pinst
     if hbd then px, py, pinst = Player(hbd) end
     if not (px and target.wx) then
-        return { "Sigue la flecha hacia el destino." }, nil
+        return { "Sigue la flecha hacia el destino." }, nil, nil
     end
-
-    -- Otro continente: zepelín o barco.
-    if pinst ~= target.instance then
-        local best = BestTransport(px, py, pinst)
-        if not best then
-            return { ("El destino está en %s: necesitas un barco o un zepelín para llegar."):format(ContinentName(target.instance)) }, nil
+    local path, total = BestPath(Stops(px, py, pinst))
+    if not path then
+        return { ("El destino está en %s y no encuentro zepelín ni barco para llegar desde %s."):format(
+            ContinentName(target.instance), ContinentName(pinst)) }, nil, nil
+    end
+    local route = {}
+    for i = 2, #path do
+        local s = path[i].stop
+        route[#route + 1] = { wx = s.wx, wy = s.wy, instance = s.instance, how = path[i].how, stop = s.kind ~= "goal" }
+    end
+    -- Siguiente paso: la primera parada a la que aún no has llegado.
+    local leg
+    for i = 2, #path - 1 do
+        local s = path[i].stop
+        if not (s.instance == pinst and Dist(px, py, s.wx, s.wy) <= NEAR) then
+            leg = StopPoint(s, path[i].how == "ride")
+            break
         end
-        local steps = { ("El destino está en %s y tú estás en %s."):format(ContinentName(target.instance), ContinentName(pinst)) }
-        local n, leg = 1, nil
-        local fly = FlightAdvice(px, py, pinst, best.fx, best.fy)
-        if fly then
-            steps[#steps + 1] = ("%d. Vuela desde %s hasta %s."):format(n, FMText(fly.from), FMText(fly.to))
-            n = n + 1
-            leg = { zone = fly.from.zone, x = fly.from.x, y = fly.from.y, title = "Maestro de vuelo " .. fly.from.name }
-        else
-            leg = { zone = best.from.zone, x = best.from.x, y = best.from.y, title = best.t.name }
-        end
-        steps[#steps + 1] = ("%d. Coge el %s en %s."):format(n, best.t.name, best.from.label)
-        steps[#steps + 1] = ("%d. Bájate en %s y desde allí te vuelvo a guiar."):format(n + 1, best.to.label)
-        return steps, leg
     end
-
-    -- Mismo continente y lejos: ¿volar?
-    local fly = FlightAdvice(px, py, pinst, target.wx, target.wy)
-    if fly then
-        return {
-            ("Está lejos (unas %d yardas en línea recta)."):format(math.floor(fly.direct)),
-            ("1. Ve al maestro de vuelo %s."):format(FMText(fly.from)),
-            ("2. Vuela hasta %s%s."):format(FMText(fly.to), fly.known and "" or " (si ya conoces ese punto de vuelo)"),
-            "3. Al aterrizar, la línea te lleva al destino.",
-        }, { zone = fly.from.zone, x = fly.from.x, y = fly.from.y, title = "Maestro de vuelo " .. fly.from.name }
-    end
-
-    return { "Sigue la línea: puedes ir andando o en montura." }, nil
+    return Describe(path, total), leg, route
 end
 
 local function RemoveWaypoint()
@@ -285,15 +400,34 @@ local function SameLeg(a, b)
     return a.zone == b.zone and a.x == b.x and a.y == b.y
 end
 
+local ARRIVAL_NEAR = 200   -- yardas: el zepelín o el barco ya está llegando
+local RIDE_WAIT = 480      -- segundos: como mucho esperamos esto (espera + viaje)
+
+-- ¿Estás a menos de radius yardas del paso al que vas?
+local function NearLeg(radius)
+    local hbd = HBD()
+    if not (hbd and target and target.leg and target.lx) then return false end
+    local px, py, instance = Player(hbd)
+    return px ~= nil and instance == target.linst and Dist(px, py, target.lx, target.ly) <= radius
+end
+
 -- Recalcula el camino. Si cambia el siguiente paso, mueve la línea y la
--- flecha y te lo cuenta en el chat.
+-- flecha y te lo cuenta (solo a ti, en tu ventana de chat).
 function N.Replan()
     if not target then return end
-    local steps, leg = Plan()
+    -- En pleno vuelo, o montado en el zepelín o el barco: esperamos a llegar.
+    if UnitOnTaxi and UnitOnTaxi("player") then return end
+    if target.leg and target.leg.arrival and GetTime() - (target.legSince or 0) < RIDE_WAIT
+        and not NearLeg(ARRIVAL_NEAR) then
+        return
+    end
+    local steps, leg, route = Plan()
     target.steps = steps
+    target.route = route
     if target.planned and SameLeg(leg, target.leg) then return end
     target.planned = true
     target.leg = leg
+    target.legSince = GetTime()
     local point = leg or target
     target.lx, target.ly, target.linst = WorldOf(point.zone, point.x, point.y)
     SetWaypoint(point, leg and leg.title or target.title)
@@ -314,7 +448,8 @@ end
 -- Líneas en el minimapa y en el mapa del mundo
 ---------------------------------------------------------------------------
 
-local miniLine, miniDot, mapHolder, mapLine, mapLine2
+local miniLine, miniDot, mapHolder
+local mapLines, mapDots = {}, {}   -- tramos y paradas de la ruta en el mapa del mundo
 
 local function MakeMinimapParts()
     if miniLine or not Minimap then return end
@@ -328,11 +463,15 @@ local function MakeMinimapParts()
     miniDot:Hide()
 end
 
+local function HideMapRoute()
+    for _, line in ipairs(mapLines) do line:Hide() end
+    for _, dot in ipairs(mapDots) do dot:Hide() end
+end
+
 local function HideLines()
     if miniLine then miniLine:Hide() end
     if miniDot then miniDot:Hide() end
-    if mapLine then mapLine:Hide() end
-    if mapLine2 then mapLine2:Hide() end
+    HideMapRoute()
 end
 
 local function UpdateMinimap(hbd)
@@ -400,52 +539,89 @@ local function DrawMapLine(line, canvas, ax, ay, bx, by, thickness)
     line:Show()
 end
 
+local function MapLine(i)
+    if not mapLines[i] then mapLines[i] = mapHolder:CreateLine(nil, "OVERLAY") end
+    return mapLines[i]
+end
+
+local function MapDot(i)
+    local dot = mapDots[i]
+    if not dot then
+        dot = mapHolder:CreateTexture(nil, "OVERLAY", nil, 7)
+        dot:SetTexture("Interface\\Buttons\\WHITE8x8")
+        mapDots[i] = dot
+    end
+    return dot
+end
+
+-- La ruta entera: de ti a cada parada y al destino, cada tramo de su color
+-- (morado a pie, dorado en vuelo, azul en zepelín o barco) y un punto en
+-- cada parada. Los tramos de otro continente no salen en este mapa.
 local function UpdateWorldMap(hbd)
     local canvas = WorldCanvas()
     if not (canvas and WorldMapFrame:IsShown()) then
-        if mapLine then mapLine:Hide() end
-        if mapLine2 then mapLine2:Hide() end
+        HideMapRoute()
         return
     end
     if not mapHolder then
         mapHolder = CreateFrame("Frame", nil, canvas)
         mapHolder:SetAllPoints(canvas)
         mapHolder:SetFrameLevel(canvas:GetFrameLevel() + 2000)
-        mapLine = mapHolder:CreateLine(nil, "OVERLAY")
-        mapLine:SetColorTexture(LINE_COLOR[1], LINE_COLOR[2], LINE_COLOR[3], LINE_COLOR[4])
-        mapLine2 = mapHolder:CreateLine(nil, "OVERLAY")
-        mapLine2:SetColorTexture(LINE_COLOR[1], LINE_COLOR[2], LINE_COLOR[3], 0.35)
     end
-    mapLine:Hide()
-    mapLine2:Hide()
+    HideMapRoute()
     local mapID = WorldMapFrame.GetMapID and WorldMapFrame:GetMapID()
     local px, py, instance = Player(hbd)
-    if not (mapID and px and target.lx) then return end
+    if not (mapID and px and target.wx) then return end
     local scale = canvas:GetScale() or 1
+    local w, h = canvas:GetWidth(), canvas:GetHeight()
+    local route = target.route or { { wx = target.wx, wy = target.wy, instance = target.instance, how = "walk" } }
 
-    -- Tú -> siguiente paso (línea fuerte).
     local ax, ay = OnMap(hbd, px, py, instance, mapID)
-    local bx, by = OnMap(hbd, target.lx, target.ly, target.linst, mapID)
-    if ax and bx then DrawMapLine(mapLine, canvas, ax, ay, bx, by, math.max(2, 4 / scale)) end
-
-    -- Siguiente paso -> destino final (línea suave), si hay escala por medio.
-    if target.leg and target.wx then
-        local cx, cy = OnMap(hbd, target.wx, target.wy, target.instance, mapID)
-        if bx and cx then DrawMapLine(mapLine2, canvas, bx, by, cx, cy, math.max(1.5, 3 / scale)) end
+    local lines, dots = 0, 0
+    for i, p in ipairs(route) do
+        local bx, by = OnMap(hbd, p.wx, p.wy, p.instance, mapID)
+        if ax and bx then
+            local c = ROUTE_COLORS[p.how] or ROUTE_COLORS.walk
+            lines = lines + 1
+            local line = MapLine(lines)
+            line:SetColorTexture(c[1], c[2], c[3], c[4])
+            DrawMapLine(line, canvas, ax, ay, bx, by, math.max(i == 1 and 2 or 1.5, (i == 1 and 4 or 3) / scale))
+        end
+        if bx and p.stop then
+            dots = dots + 1
+            local dot = MapDot(dots)
+            local size = math.max(5, 9 / scale)
+            dot:SetSize(size, size)
+            dot:SetVertexColor(1, 1, 1, 0.95)
+            dot:ClearAllPoints()
+            dot:SetPoint("CENTER", canvas, "TOPLEFT", bx * w, -by * h)
+            dot:Show()
+        end
+        ax, ay = bx, by
     end
 end
 
+-- ¿Has llegado a la parada a la que ibas? Entonces toca el siguiente paso.
+local function ReachedLeg()
+    return target.leg ~= nil and NearLeg(target.leg.arrival and ARRIVAL_NEAR or NEAR)
+end
+
 local ticker = CreateFrame("Frame")
-local elapsedSince = 0
+local elapsedSince, sinceCheck = 0, 0
 ticker:Hide()
 ticker:SetScript("OnUpdate", function(_, elapsed)
     elapsedSince = elapsedSince + elapsed
     if elapsedSince < 0.05 then return end
+    sinceCheck = sinceCheck + elapsedSince
     elapsedSince = 0
     local hbd = HBD()
     if not (target and hbd) then
         HideLines()
         return
+    end
+    if sinceCheck >= 1 then
+        sinceCheck = 0
+        if ReachedLeg() then N.Replan() end
     end
     UpdateMinimap(hbd)
     UpdateWorldMap(hbd)

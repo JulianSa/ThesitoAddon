@@ -286,6 +286,15 @@ local function Chain(db, q)
     return chain
 end
 
+-- Dónde se entrega una misión (el sitio de tu facción): { name, spot } o nil.
+local function TurnInPlace(db, q)
+    local places = ns.Important and ns.Important.Places and ns.Important.Places(q, "finishedBy") or {}
+    local p = places[1]
+    if not p then return nil end
+    local store = p.npc and db.Npc or db.Object
+    return { name = Get(store, p.id, "name") or "?", spot = BestSpot(Get(store, p.id, "spawns")) }
+end
+
 -- Escribe quién da una misión (o dónde se consigue el objeto que la empieza)
 -- y devuelve el destino para la flecha.
 local function StarterLines(db, q, qTitle, add, preferZone)
@@ -356,6 +365,7 @@ function Q.Detail(questID)
         if minLevel then add(("Se coge desde el nivel %d."):format(minLevel)) end
         if db then
             local chain = Chain(db, questID)
+            local firstInLog = false
             if #chain > 0 then
                 add("")
                 add(#chain == 1 and "|cffff9933Antes tienes que hacer esta misión:|r"
@@ -368,7 +378,19 @@ function Q.Detail(questID)
                 add("")
                 add("|cffffd200Empieza por «" .. firstTitle .. "»|r")
                 if Q.InLog(first) then
+                    firstInLog = true
                     add("Ya la tienes en el registro: búscala en la pestaña Misiones.")
+                    -- Si ya está hecha, lo siguiente es entregarla.
+                    if call(C_QuestLog.IsComplete, first) then
+                        local place = TurnInPlace(db, first)
+                        if place then
+                            add("Ya está completada: entrégala en " .. place.name .. ", " .. SpotText(place.spot) .. ".")
+                            if place.spot and place.spot.x then
+                                info.starter = { zone = place.spot.zone, x = place.spot.x, y = place.spot.y,
+                                    title = "Entregar «" .. firstTitle .. "» (" .. place.name .. ")", questID = first }
+                            end
+                        end
+                    end
                 else
                     local firstLevel = Get(db.Quest, first, "requiredLevel")
                     if firstLevel then add(("Se coge desde el nivel %d."):format(firstLevel)) end
@@ -383,7 +405,9 @@ function Q.Detail(questID)
             add("")
             add("|cffffd200Quién da «" .. title .. "»|r")
             local dest = StarterLines(db, questID, title, add, preferZone)
-            if #chain == 0 then info.starter = dest end
+            -- Sin misiones previas pendientes, o con la previa ya en tu
+            -- registro, el botón «Quién la da» lleva a quien da esta.
+            if #chain == 0 or (firstInLog and not info.starter) then info.starter = dest end
         end
         add("")
     end
