@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: Thesito Addon
 ## Notes: Talentos, instructor, bolsas, misiones con rumbo y misiones importantes para tu personaje. /thesito
-## Version: 0.9.8
+## Version: 0.9.9
 ## SavedVariablesPerCharacter: ThesitoAddonDB
 ## IconTexture: Interface\Icons\Spell_Shadow_Shadowform
 ## OptionalDeps: QuestieDB, SkillUpForever

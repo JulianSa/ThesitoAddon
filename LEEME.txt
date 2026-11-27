@@ -49,6 +49,8 @@ Instálalos con la app de CurseForge eligiendo "World of Warcraft: Forever"
   misión es cada objeto de las bolsas.
 - TomTom: para la flecha y las líneas en el mapa y el minimapa.
 - SkillUpForever (opcional): solo para las bolsas que puede coser un Sastre.
+- SendaFH (opcional), con su navegación: para que el rumbo a pie vaya por
+  los caminos en vez de en línea recta (se apaga en Opciones).
 Sin ellos el addon funciona, pero esas partes te avisan de que faltan.
 
 

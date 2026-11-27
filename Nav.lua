@@ -5,6 +5,8 @@
 -- zepelín o barco). La línea del minimapa y la flecha de TomTom apuntan al
 -- SIGUIENTE paso; al llegar a él, aterrizar o cambiar de zona se vuelve a
 -- calcular. Las posiciones se calculan con HereBeDragons (viene con TomTom).
+-- Si tienes SendaFH con su navegación (SendaFH_Nav), los tramos a pie van
+-- por los caminos y los pasos en vez de en línea recta (ver más abajo).
 
 local _, ns = ...
 local N = {}
@@ -197,6 +199,211 @@ local function FMText(fm)
 end
 
 ---------------------------------------------------------------------------
+-- Caminos a pie por donde se puede pasar (si tienes SendaFH)
+-- SendaFH_Nav (parte de SendaFH, de Forever Hispano, GPL-3.0; su cálculo de
+-- rutas parte del de Shortest Path Forever, de Cillian Berragan) trae mapas
+-- del terreno de Forever y busca caminos a pie por los caminos, las puertas
+-- y los pasos, sin subir montañas ni cruzar el mar. Thesito no lleva esos
+-- mapas ni ese código: si SendaFH_Nav está instalado, le pide el camino de
+-- cada tramo a pie (SendaFH_NavEngine.Find); si no, los tramos van en línea
+-- recta como antes.
+---------------------------------------------------------------------------
+
+local WALK_STYLE = "roads"   -- prefiere los caminos y evita las cuestas
+local STRAY = 40             -- yardas: si te apartas más del camino, se busca otro desde donde estés
+local ASK_AGAIN = 3          -- segundos entre dos búsquedas del tramo en que estás
+local FAIL_AGAIN = 20        -- segundos antes de volver a probar un tramo que no se encontró
+local LOOK_AHEAD = 60        -- yardas: la flecha apunta a la curva del camino que hay a esta distancia
+local engineTried = false
+local walks = {}             -- tramos a pie ya pedidos (salvo el tuyo): [clave] = entrada
+
+local function WalkEngine()
+    if not ns.IsOn("walkPaths") then return nil end
+    local P = _G.SendaFH_NavEngine
+    if type(P) == "table" and type(P.Find) == "function" then return P end
+    -- SendaFH lo carga cuando lo necesita; si aún no lo ha hecho, lo cargamos
+    -- nosotros una vez (nunca en combate: son unos cuantos megas).
+    if engineTried or (InCombatLockdown and InCombatLockdown()) then return nil end
+    engineTried = true
+    local load = (C_AddOns and C_AddOns.LoadAddOn) or LoadAddOn
+    if load then pcall(load, "SendaFH_Nav") end
+    P = _G.SendaFH_NavEngine
+    if type(P) == "table" and type(P.Find) == "function" then return P end
+    return nil
+end
+
+-- ¿Se pueden buscar caminos a pie en ese continente?
+local function WalkReady(instance)
+    local P = WalkEngine()
+    if not (P and instance) then return false end
+    if P.Available then return call(P.Available, instance) and true or false end
+    return true
+end
+
+-- Pide el camino a pie de (ax, ay) a (bx, by). La respuesta llega unos
+-- fotogramas después: entry.status pasa de "pending" a "ok" (con xs, ys: los
+-- puntos del camino, en coordenadas de HereBeDragons) o a "fail".
+local function AskWalk(instance, ax, ay, bx, by)
+    local entry = { status = "fail", when = GetTime(), instance = instance, bx = bx, by = by }
+    local P = WalkEngine()
+    if not (P and WalkReady(instance)) then return entry end
+    -- El motor usa las coordenadas de UnitPosition (x al norte, y al oeste):
+    -- las de HereBeDragons al revés.
+    local ok, job = pcall(P.Find, instance, { x = ay, y = ax }, { x = by, y = bx }, function(points, reason)
+        if entry.cancelled then return end
+        local raw = {}
+        for _, p in ipairs(type(points) == "table" and points or {}) do
+            if type(p) == "table" and type(p.x) == "number" and type(p.y) == "number" then
+                raw[#raw + 1] = p
+            end
+        end
+        entry.when, entry.job = GetTime(), nil
+        if #raw < 2 then
+            entry.status, entry.reason = "fail", tostring(reason)
+            return
+        end
+        -- Sin puntos casi repetidos (menos de 3 yardas), pero con el último.
+        local xs, ys = { raw[1].y }, { raw[1].x }
+        for i = 2, #raw do
+            local x, y = raw[i].y, raw[i].x
+            local n = #xs
+            if i == #raw or Dist(xs[n], ys[n], x, y) >= 3 then
+                xs[n + 1], ys[n + 1] = x, y
+            end
+        end
+        entry.xs, entry.ys, entry.status, entry.previous = xs, ys, "ok", nil
+        local yards = 0
+        for i = 2, #xs do yards = yards + Dist(xs[i - 1], ys[i - 1], xs[i], ys[i]) end
+        entry.yards = yards
+    end, { profile = UnitFactionGroup("player"), style = WALK_STYLE })
+    if ok then entry.status, entry.job = "pending", job end
+    return entry
+end
+
+local function DropWalk(entry)
+    if not entry then return end
+    entry.cancelled = true
+    local P = _G.SendaFH_NavEngine
+    if entry.job and P and P.Cancel then pcall(P.Cancel, entry.job) end
+    entry.job = nil
+end
+
+-- Al quitar o cambiar el rumbo: fuera las búsquedas pendientes.
+local function ForgetWalks()
+    for _, e in pairs(walks) do DropWalk(e) end
+    walks = {}
+    if target then
+        DropWalk(target.here)
+        target.here = nil
+    end
+end
+
+-- El camino que se puede usar ya: el que ha llegado o, mientras llega el
+-- nuevo, el anterior.
+local function Usable(entry)
+    if not (entry and ns.IsOn("walkPaths")) then return nil end
+    if entry.status == "ok" then return entry end
+    return entry.previous
+end
+
+-- Tu sitio en el camino: el tramo (entre los puntos i e i+1) y el punto más
+-- cercano en él. Busca cerca de donde ibas, o en todo el camino si full.
+local function Project(e, x, y, full)
+    local xs, ys = e.xs, e.ys
+    local first, last = 1, #xs - 1
+    if not full and e.progress then
+        first, last = math.max(1, e.progress - 3), math.min(#xs - 1, e.progress + 60)
+    end
+    local bestI, bestD, bestX, bestY = first, math.huge, xs[first], ys[first]
+    for i = first, last do
+        local ax, ay = xs[i], ys[i]
+        local dx, dy = xs[i + 1] - ax, ys[i + 1] - ay
+        local len2 = dx * dx + dy * dy
+        local t = len2 > 0 and ((x - ax) * dx + (y - ay) * dy) / len2 or 0
+        if t < 0 then t = 0 elseif t > 1 then t = 1 end
+        local qx, qy = ax + dx * t, ay + dy * t
+        local d = Dist(x, y, qx, qy)
+        if d < bestD then bestI, bestD, bestX, bestY = i, d, qx, qy end
+    end
+    e.progress, e.qx, e.qy, e.off = bestI, bestX, bestY, bestD
+    return bestD
+end
+
+-- Clave de un tramo a pie entre dos paradas (redondeada a 8 yardas).
+local function WalkKey(instance, ax, ay, bx, by)
+    local r = function(v) return math.floor(v / 8 + 0.5) end
+    return ("%s:%d:%d:%d:%d"):format(tostring(instance), r(ax), r(ay), r(bx), r(by))
+end
+
+-- Pide (si hace falta) los caminos de todos los tramos a pie de la ruta: el
+-- tuyo (de ti a la primera parada) se guarda en target.here y se vuelve a
+-- pedir si te apartas de él; los demás, en walks.
+local function UpdateWalks(px, py, pinst)
+    local route = target and target.route
+    if not (route and px and ns.IsOn("walkPaths")) then return end
+    -- En vuelo o montado en el zepelín o el barco no se anda.
+    if (UnitOnTaxi and UnitOnTaxi("player")) or (target.leg and target.leg.arrival) then return end
+    local now = GetTime()
+    for i, p in ipairs(route) do
+        if p.how == "walk" and p.instance then
+            if i == 1 then
+                local e = target.here
+                if e and (e.instance ~= p.instance or Dist(e.bx, e.by, p.wx, p.wy) > 5) then
+                    DropWalk(e)
+                    e, target.here = nil, nil
+                end
+                local ask = false
+                if p.instance ~= pinst then
+                    ask = false
+                elseif not e then
+                    ask = true
+                elseif e.status == "ok" then
+                    ask = Project(e, px, py, true) > STRAY and now - e.when >= ASK_AGAIN
+                elseif e.status == "fail" then
+                    ask = now - e.when >= FAIL_AGAIN
+                end
+                if ask and WalkReady(pinst) then
+                    local fresh = AskWalk(pinst, px, py, p.wx, p.wy)
+                    -- Mientras llega el nuevo, se sigue viendo el anterior.
+                    fresh.previous = Usable(e)
+                    DropWalk(e)
+                    target.here = fresh
+                end
+            else
+                local from = route[i - 1]
+                if from.instance == p.instance then
+                    local key = WalkKey(p.instance, from.wx, from.wy, p.wx, p.wy)
+                    local e = walks[key]
+                    if e and e.status == "fail" and now - e.when >= FAIL_AGAIN then e = nil end
+                    if not e and WalkReady(p.instance) then
+                        e = AskWalk(p.instance, from.wx, from.wy, p.wx, p.wy)
+                        walks[key] = e
+                    end
+                    p.walk = e
+                end
+            end
+        end
+    end
+    local first = route[1]
+    if target.here and not (first and first.how == "walk") then
+        DropWalk(target.here)
+        target.here = nil
+    end
+end
+
+-- Cuántos tramos a pie tienen ya su camino (para /thesito mapa).
+local function WalkCounts()
+    local ready, total = 0, 0
+    for i, p in ipairs(target and target.route or {}) do
+        if p.how == "walk" then
+            total = total + 1
+            if Usable(i == 1 and target.here or p.walk) then ready = ready + 1 end
+        end
+    end
+    return ready, total
+end
+
+---------------------------------------------------------------------------
 -- El plan: el camino más rápido y el siguiente paso
 -- Paradas posibles: tú, el destino, los maestros de vuelo que conoces y los
 -- muelles y torres de zepelín. Entre dos paradas del mismo continente se
@@ -306,8 +513,12 @@ local function Describe(path, total)
     end
     if #path == 2 then
         local d = Dist(path[1].stop.wx, path[1].stop.wy, path[2].stop.wx, path[2].stop.wy)
-        steps[1] = ("Ve a pie o en montura: unas %d yardas en línea recta (unos %d min)."):format(math.floor(d), minutes)
-        if d > 1500 then steps[2] = "Ve por los caminos: la línea va en línea recta y no esquiva montañas." end
+        if WalkReady(path[2].stop.instance) then
+            steps[1] = ("Ve a pie o en montura siguiendo la línea, que va por el camino: unas %d yardas en línea recta (unos %d min)."):format(math.floor(d), minutes)
+        else
+            steps[1] = ("Ve a pie o en montura: unas %d yardas en línea recta (unos %d min)."):format(math.floor(d), minutes)
+            if d > 1500 then steps[2] = "Ve por los caminos: la línea va en línea recta y no esquiva montañas." end
+        end
         return steps
     end
     steps[1] = ("Unos %d minutos de viaje:"):format(minutes)
@@ -318,7 +529,9 @@ local function Describe(path, total)
         if how == "walk" then
             if to.kind == "goal" then
                 step(("Desde ahí, a pie hasta el destino (unas %d yardas)."):format(math.floor(d)))
-                if d > 1500 then steps[#steps + 1] = "    Ve por los caminos: la línea va en línea recta." end
+                if d > 1500 and not WalkReady(to.instance) then
+                    steps[#steps + 1] = "    Ve por los caminos: la línea va en línea recta."
+                end
             elseif d > NEAR then
                 if to.kind == "fm" and nextHow == "fly" then
                     step("Ve al maestro de vuelo " .. FMText(to.fm) .. ".")
@@ -395,6 +608,79 @@ local function SetWaypoint(point, title)
     end
 end
 
+-- El mapa del continente (para poner la flecha en un punto del mundo).
+local continentMaps = {}
+local function ContinentMap(instance)
+    if continentMaps[instance] == nil then
+        local hbd = HBD()
+        local kind = Enum and Enum.UIMapType and Enum.UIMapType.Continent or 2
+        local found = false
+        for id, data in pairs(hbd and hbd.mapData or {}) do
+            if data.instance == instance and data.mapType == kind then
+                found = id
+                break
+            end
+        end
+        continentMaps[instance] = found
+    end
+    return continentMaps[instance] or nil
+end
+
+-- La flecha de TomTom en un punto del mundo (una curva del camino). Sin
+-- mensajes: cambia a menudo mientras andas.
+local function SetWaypointWorld(instance, wx, wy, title)
+    local hbd = HBD()
+    local map = ContinentMap(instance)
+    if not (hbd and map and TomTom and TomTom.AddWaypoint) then return false end
+    local x, y = call(hbd.GetZoneCoordinatesFromWorld, hbd, wx, wy, map)
+    if not x then return false end
+    -- Primero la nueva y luego fuera la vieja: si no se pudiera poner, la
+    -- flecha sigue donde estaba.
+    local old = target.uid
+    local uid = call(TomTom.AddWaypoint, TomTom, map, x, y,
+        { title = title, from = "Thesito Addon", crazy = true, persistent = false, silent = true })
+    if not uid then return false end
+    if old and TomTom.RemoveWaypoint then call(TomTom.RemoveWaypoint, TomTom, old) end
+    target.uid = uid
+    return true
+end
+
+-- Si el tramo en que estás tiene camino, la flecha apunta a la curva del
+-- camino que hay unas LOOK_AHEAD yardas por delante (y no en línea recta a
+-- la parada, por encima de la montaña). Cerca del final, a la parada.
+local function FollowArrow()
+    local e = target and Usable(target.here)
+    local first = target and target.route and target.route[1]
+    local onLeg = e and e.progress and first and target.lx and target.linst == e.instance
+        and Dist(first.wx, first.wy, target.lx, target.ly) <= 5
+    local want, j = nil, nil
+    if onLeg then
+        local xs, ys = e.xs, e.ys
+        local along, lastX, lastY = 0, e.qx, e.qy
+        for k = e.progress + 1, #xs do
+            along = along + Dist(lastX, lastY, xs[k], ys[k])
+            lastX, lastY = xs[k], ys[k]
+            if along >= LOOK_AHEAD then
+                j = k
+                break
+            end
+        end
+        if j and j < #xs then want = tostring(e) .. ":" .. j end
+    end
+    if want == target.arrowOn then return end
+    local now = GetTime()
+    if want and now - (target.arrowAt or 0) < 2 then return end
+    local point = target.leg or target
+    local title = target.leg and target.leg.title or target.title
+    if want and SetWaypointWorld(e.instance, e.xs[j], e.ys[j], title .. " (por el camino)") then
+        target.arrowOn, target.arrowAt = want, now
+    elseif target.arrowOn then
+        -- Sin camino o ya cerca: la flecha vuelve a la parada.
+        SetWaypoint(point, title)
+        target.arrowOn, target.arrowAt = nil, now
+    end
+end
+
 local function SameLeg(a, b)
     if a == nil or b == nil then return a == b end
     return a.zone == b.zone and a.x == b.x and a.y == b.y
@@ -424,6 +710,8 @@ function N.Replan()
     local steps, leg, route = Plan()
     target.steps = steps
     target.route = route
+    local hbd = HBD()
+    if hbd then UpdateWalks(Player(hbd)) end
     if target.planned and SameLeg(leg, target.leg) then return end
     target.planned = true
     target.leg = leg
@@ -431,6 +719,7 @@ function N.Replan()
     local point = leg or target
     target.lx, target.ly, target.linst = WorldOf(point.zone, point.x, point.y)
     SetWaypoint(point, leg and leg.title or target.title)
+    target.arrowOn = nil
     ns.Print("rumbo a " .. target.title .. ":")
     for _, s in ipairs(steps) do ns.Print("   " .. s) end
     ns.RequestRefresh()
@@ -449,11 +738,15 @@ end
 ---------------------------------------------------------------------------
 
 local miniLine, miniDot, mapHolder
+local miniPath = {}   -- trozos del camino en el minimapa
 -- Tramos (borde oscuro y color) y paradas de la ruta en el mapa del mundo.
 local mapEdges, mapLines, mapDots = {}, {}, {}
 -- Lo último que pasó al dibujar en el mapa del mundo (para /thesito mapa).
 local mapState = {}
 local mapErrorShown = false
+-- Lo que hay dibujado en el mapa del mundo: si no cambia, solo se mueve el
+-- trozo que sale de ti (los caminos tienen muchos puntos).
+local drawnSig
 
 local function MakeMinimapParts()
     if miniLine or not Minimap then return end
@@ -473,10 +766,41 @@ local function HideMapRoute()
     for _, dot in ipairs(mapDots) do dot:Hide() end
 end
 
+local function HideMiniPath(from)
+    for i = from or 1, #miniPath do miniPath[i]:Hide() end
+end
+
 local function HideLines()
     if miniLine then miniLine:Hide() end
     if miniDot then miniDot:Hide() end
+    HideMiniPath()
     HideMapRoute()
+    drawnSig = nil
+end
+
+local function MiniPathLine(i)
+    local line = miniPath[i]
+    if not line then
+        line = Minimap:CreateLine(nil, "OVERLAY")
+        line:SetThickness(3)
+        line:SetColorTexture(LINE_COLOR[1], LINE_COLOR[2], LINE_COLOR[3], LINE_COLOR[4])
+        miniPath[i] = line
+    end
+    return line
+end
+
+-- Del segmento de a (dentro del círculo) a b (fuera): dónde corta el borde.
+local function ClipToCircle(ax, ay, bx, by, r)
+    local dx, dy = bx - ax, by - ay
+    local A = dx * dx + dy * dy
+    if A == 0 then return ax, ay end
+    local B = 2 * (ax * dx + ay * dy)
+    local C = ax * ax + ay * ay - r * r
+    local disc = B * B - 4 * A * C
+    if disc < 0 then return ax, ay end
+    local t = (-B + math.sqrt(disc)) / (2 * A)
+    if t < 0 then t = 0 elseif t > 1 then t = 1 end
+    return ax + dx * t, ay + dy * t
 end
 
 local function UpdateMinimap(hbd)
@@ -486,29 +810,77 @@ local function UpdateMinimap(hbd)
     if not (px and target.lx) or instance ~= target.linst then
         miniLine:Hide()
         miniDot:Hide()
+        HideMiniPath()
         return
     end
-    local dx, dy = px - target.lx, py - target.ly
-    if dx * dx + dy * dy < ARRIVED * ARRIVED then
+    local tdx, tdy = px - target.lx, py - target.ly
+    if tdx * tdx + tdy * tdy < ARRIVED * ARRIVED then
         miniLine:Hide()
         miniDot:Hide()
+        HideMiniPath()
         return
     end
+    local s, c
     if GetCVar("rotateMinimap") == "1" then
         local facing = GetPlayerFacing and GetPlayerFacing()
         if not facing or (issecretvalue and issecretvalue(facing)) then
             miniLine:Hide()
             miniDot:Hide()
+            HideMiniPath()
             return
         end
-        local s, c = math.sin(facing), math.cos(facing)
-        dx, dy = dx * c - dy * s, dx * s + dy * c
+        s, c = math.sin(facing), math.cos(facing)
     end
     local radius = (C_Minimap and C_Minimap.GetViewRadius and call(C_Minimap.GetViewRadius)) or 200
     local half = Minimap:GetWidth() / 2
-    local ox, oy = dx / radius * half, -dy / radius * half
-    local len = math.sqrt(ox * ox + oy * oy)
     local maxLen = half * 0.9
+    -- Punto del mundo -> desplazamiento en el minimapa desde el centro (tú).
+    local function Off(wx, wy)
+        local dx, dy = px - wx, py - wy
+        if s then dx, dy = dx * c - dy * s, dx * s + dy * c end
+        return dx / radius * half, -dy / radius * half
+    end
+
+    -- Con camino: la línea va por él, curva a curva, hasta el borde.
+    local e = Usable(target.here)
+    local first = target.route and target.route[1]
+    if e and e.qx and first and e.instance == instance and Dist(first.wx, first.wy, target.lx, target.ly) <= 5 then
+        miniLine:Hide()
+        local n, ax, ay = 0, 0, 0
+        local inside = true
+        local k = e.progress
+        while inside and k <= #e.xs do
+            local bx, by
+            if k == e.progress then bx, by = Off(e.qx, e.qy) else bx, by = Off(e.xs[k], e.ys[k]) end
+            if bx * bx + by * by > maxLen * maxLen then
+                bx, by = ClipToCircle(ax, ay, bx, by, maxLen)
+                inside = false
+            end
+            if bx ~= ax or by ~= ay then
+                n = n + 1
+                local line = MiniPathLine(n)
+                line:SetStartPoint("CENTER", Minimap, ax, ay)
+                line:SetEndPoint("CENTER", Minimap, bx, by)
+                line:Show()
+            end
+            ax, ay = bx, by
+            k = k + 1
+        end
+        HideMiniPath(n + 1)
+        if inside then
+            miniDot:ClearAllPoints()
+            miniDot:SetPoint("CENTER", Minimap, "CENTER", ax, ay)
+            miniDot:Show()
+        else
+            miniDot:Hide()
+        end
+        return
+    end
+
+    -- Sin camino: en línea recta a la parada.
+    HideMiniPath()
+    local ox, oy = Off(target.lx, target.ly)
+    local len = math.sqrt(ox * ox + oy * oy)
     local inside = len <= maxLen
     if not inside then ox, oy = ox / len * maxLen, oy / len * maxLen end
     miniLine:SetStartPoint("CENTER", Minimap, 0, 0)
@@ -585,6 +957,30 @@ local function DrawSegment(tex, x1, y1, x2, y2, width)
     return true
 end
 
+-- Nivel de la capa de la ruta. En Forever el lienzo del mapa dice estar a
+-- nivel 3, pero el dibujo del mapa va mucho más arriba (hacia 2000): justo
+-- encima del lienzo la ruta quedaba tapada. Como las rutas de Questie: 2015,
+-- encima del dibujo y debajo de sus iconos; y si alguna capa del tamaño del
+-- mapa va aún más alta, por encima de ella.
+local MAP_ROUTE_LEVEL = 2015
+local levelMap, levelAt, levelValue, levelTop
+
+local function RouteLevel(canvas, mapID)
+    local now = GetTime()
+    if levelValue and levelMap == mapID and now < levelAt then return levelValue, levelTop end
+    local cw, ch = canvas:GetWidth(), canvas:GetHeight()
+    local top = 0
+    for _, child in ipairs({ canvas:GetChildren() }) do
+        if child ~= mapHolder and child:IsShown()
+            and child:GetWidth() >= cw * 0.9 and child:GetHeight() >= ch * 0.9 then
+            top = math.max(top, child:GetFrameLevel())
+        end
+    end
+    levelMap, levelAt, levelTop = mapID, now + 2, top
+    levelValue = math.min(math.max(canvas:GetFrameLevel() + 15, MAP_ROUTE_LEVEL, top + 1), 9000)
+    return levelValue, levelTop
+end
+
 local function DrawDot(tex, x, y, size, r, g, b, a)
     tex:SetSize(size, size)
     tex:SetVertexColor(r, g, b, a)
@@ -595,12 +991,14 @@ end
 
 -- La ruta entera: de ti a cada parada y al destino, cada tramo de su color
 -- (morado a pie, dorado en vuelo, azul en zepelín o barco) con un borde
--- oscuro, y un punto blanco en cada parada. Los tramos de otro continente
--- no salen en este mapa.
+-- oscuro, y un punto blanco en cada parada. Los tramos a pie que tienen
+-- camino van por él, curva a curva. Los tramos de otro continente no salen
+-- en este mapa.
 local function UpdateWorldMap(hbd)
     local canvas = WorldCanvas()
     if not (canvas and WorldMapFrame:IsShown()) then
         HideMapRoute()
+        drawnSig = nil
         return
     end
     if not mapHolder or mapHolder:GetParent() ~= canvas then
@@ -609,50 +1007,128 @@ local function UpdateWorldMap(hbd)
         mapHolder:ClearAllPoints()
         mapHolder:SetAllPoints(canvas)
     end
-    -- Encima del dibujo del mapa y justo debajo de los iconos de Questie.
-    local level = canvas:GetFrameLevel() + 15
-    if mapHolder:GetFrameLevel() ~= level then mapHolder:SetFrameLevel(level) end
-    mapHolder:Show()
-    HideMapRoute()
-
     local mapID = WorldMapFrame.GetMapID and WorldMapFrame:GetMapID()
     if issecretvalue and mapID and issecretvalue(mapID) then mapID = nil end
+    local level, top = RouteLevel(canvas, mapID)
+    if mapHolder:GetFrameLevel() ~= level then mapHolder:SetFrameLevel(level) end
+    mapHolder:Show()
+
     local px, py, instance = Player(hbd)
     local scale = canvas:GetScale() or 1
     local w, h = canvas:GetWidth(), canvas:GetHeight()
     local s = mapState
-    s.when, s.mapID, s.w, s.h, s.scale = GetTime(), mapID, w, h, scale
-    s.canvasLevel, s.level, s.segments, s.dots, s.you, s.err = canvas:GetFrameLevel(), level, 0, 0, nil, nil
+    s.when, s.mapID, s.w, s.h, s.scale, s.top = GetTime(), mapID, w, h, scale, top
+    s.canvasLevel, s.level, s.you, s.err = canvas:GetFrameLevel(), mapHolder:GetFrameLevel(), nil, nil
     s.route = target.route and #target.route or 0
-    if not (mapID and px and target.wx) then return end
+    if not (mapID and px and target.wx) then
+        HideMapRoute()
+        drawnSig = nil
+        s.segments, s.dots = 0, 0
+        return
+    end
     local route = target.route or { { wx = target.wx, wy = target.wy, instance = target.instance, how = "walk" } }
+    local first = route[1]
+    local here = Usable(target.here)
+    if here and not (here.qx and first and first.how == "walk") then here = nil end
 
-    local ax, ay = OnMap(hbd, px, py, instance, mapID)
-    if ax then s.you = ("%.2f, %.2f"):format(ax, ay) end
-    local segments, dots = 0, 0
-    for i, p in ipairs(route) do
-        local bx, by = OnMap(hbd, p.wx, p.wy, p.instance, mapID)
-        if ax and bx then
+    -- Punto del mundo -> unidades del lienzo (nada si es de otro continente).
+    local function At(wx, wy, inst)
+        local mx, my = OnMap(hbd, wx, wy, inst, mapID)
+        if mx then return mx * w, my * h end
+    end
+    local function Seg(n, ax, ay, bx, by, width, c)
+        local edge = MapTexture(mapEdges, n, "ARTWORK", 0, WHITE)
+        edge:SetVertexColor(0, 0, 0, 0.6)
+        DrawSegment(edge, ax, ay, bx, by, width + 2 / scale)
+        local line = MapTexture(mapLines, n, "OVERLAY", 0, WHITE)
+        line:SetVertexColor(c[1], c[2], c[3], 1)
+        DrawSegment(line, ax, ay, bx, by, width)
+    end
+    local function Polyline(n, e, from, width, c)
+        local ax, ay = At(e.xs[from], e.ys[from], e.instance)
+        for k = from + 1, #e.xs do
+            local bx, by = At(e.xs[k], e.ys[k], e.instance)
+            if ax and bx then
+                n = n + 1
+                Seg(n, ax, ay, bx, by, width, c)
+            end
+            ax, ay = bx, by
+        end
+        return n
+    end
+
+    -- Lo fijo (todo menos el trozo que sale de ti): solo cuando cambia algo.
+    local parts = { mapID, math.floor(w), math.floor(h), math.floor(scale * 1000), tostring(route),
+        tostring(here), here and here.progress or 0 }
+    for _, p in ipairs(route) do parts[#parts + 1] = tostring(Usable(p.walk)) end
+    local sig = table.concat(parts, "|")
+    if sig ~= drawnSig then
+        HideMapRoute()
+        drawnSig = sig
+        local n, dots = 2, 0   -- los trozos 1 y 2 son los que salen de ti (abajo)
+        for i, p in ipairs(route) do
             local c = ROUTE_COLORS[p.how] or ROUTE_COLORS.walk
             local width = (i == 1 and 4 or 3) / scale
-            segments = segments + 1
-            local edge = MapTexture(mapEdges, segments, "ARTWORK", 0, WHITE)
-            edge:SetVertexColor(0, 0, 0, 0.6)
-            DrawSegment(edge, ax * w, ay * h, bx * w, by * h, width + 2 / scale)
-            local line = MapTexture(mapLines, segments, "OVERLAY", 0, WHITE)
-            line:SetVertexColor(c[1], c[2], c[3], 1)
-            DrawSegment(line, ax * w, ay * h, bx * w, by * h, width)
+            local e = (i > 1 and p.how == "walk") and Usable(p.walk) or nil
+            if i == 1 then
+                if here then n = Polyline(n, here, here.progress + 1, width, c) end
+            elseif e then
+                n = Polyline(n, e, 1, width, c)
+            else
+                local prev = route[i - 1]
+                local ax, ay = At(prev.wx, prev.wy, prev.instance)
+                local bx, by = At(p.wx, p.wy, p.instance)
+                if ax and bx then
+                    n = n + 1
+                    Seg(n, ax, ay, bx, by, width, c)
+                end
+            end
+            if p.stop then
+                local bx, by = At(p.wx, p.wy, p.instance)
+                if bx then
+                    dots = dots + 1
+                    local size = 10 / scale
+                    DrawDot(MapTexture(mapDots, dots * 2 - 1, "OVERLAY", 6, DISC), bx, by, size + 3 / scale, 0, 0, 0, 0.8)
+                    DrawDot(MapTexture(mapDots, dots * 2, "OVERLAY", 7, DISC), bx, by, size, 1, 1, 1, 1)
+                end
+            end
         end
-        if bx and p.stop then
-            dots = dots + 1
-            local size = 10 / scale
-            DrawDot(MapTexture(mapDots, dots * 2 - 1, "OVERLAY", 6, DISC), bx * w, by * h, size + 3 / scale, 0, 0, 0, 0.8)
-            DrawDot(MapTexture(mapDots, dots * 2, "OVERLAY", 7, DISC), bx * w, by * h, size, 1, 1, 1, 1)
-        end
-        ax, ay = bx, by
+        s.segments, s.dots = n - 2, dots
     end
-    s.segments, s.dots = segments, dots
-    s.shown = mapLines[1] and mapLines[1]:IsVisible() or false
+
+    -- Lo que se mueve contigo: de ti al camino y a su siguiente curva, o
+    -- (sin camino) de ti a la primera parada en línea recta.
+    local drawn = 0
+    local ax, ay = At(px, py, instance)
+    if ax then s.you = ("%.2f, %.2f"):format(ax / w, ay / h) end
+    if ax and first then
+        local c = ROUTE_COLORS[first.how] or ROUTE_COLORS.walk
+        local width = 4 / scale
+        if here then
+            local qx, qy = At(here.qx, here.qy, here.instance)
+            local nx, ny = At(here.xs[here.progress + 1], here.ys[here.progress + 1], here.instance)
+            if qx then
+                drawn = 1
+                Seg(1, ax, ay, qx, qy, width, c)
+                if nx then
+                    drawn = 2
+                    Seg(2, qx, qy, nx, ny, width, c)
+                end
+            end
+        else
+            local bx, by = At(first.wx, first.wy, first.instance)
+            if bx then
+                drawn = 1
+                Seg(1, ax, ay, bx, by, width, c)
+            end
+        end
+    end
+    for k = drawn + 1, 2 do
+        if mapEdges[k] then mapEdges[k]:Hide() end
+        if mapLines[k] then mapLines[k]:Hide() end
+    end
+    s.moving = drawn
+    s.shown = (mapLines[1] and mapLines[1]:IsVisible()) or (mapLines[3] and mapLines[3]:IsVisible()) or false
 end
 
 -- /thesito mapa: qué pasó la última vez que se dibujó la ruta en el mapa.
@@ -660,11 +1136,16 @@ function N.MapReport()
     if not target then return "no tienes ningún rumbo puesto." end
     local s = mapState
     if not s.when then return "abre el mapa (M) con el rumbo puesto y vuelve a escribir /thesito mapa." end
-    return ("hace %d s: mapa %s, lienzo %dx%d, escala %.2f, nivel %s/%s; tú en %s; %d paradas, %d tramos y %d puntos dibujados%s%s."):format(
+    local ready, total = WalkCounts()
+    local engine = _G.SendaFH_NavEngine and "sí" or (ns.IsOn("walkPaths") and "no está" or "apagado en Opciones")
+    local here = target.here
+    return ("hace %d s: mapa %s, lienzo %dx%d, escala %.2f, nivel %s/%s/%s; tú en %s; %d paradas, %d tramos y %d puntos dibujados%s; caminos a pie %d de %d (SendaFH_Nav: %s%s)%s."):format(
         GetTime() - s.when, tostring(s.mapID), s.w or 0, s.h or 0, s.scale or 0,
-        tostring(s.canvasLevel), tostring(s.level), s.you or "otro mapa",
-        s.route or 0, s.segments or 0, s.dots or 0,
-        s.segments and s.segments > 0 and (s.shown and ", visibles" or ", NO visibles") or "",
+        tostring(s.canvasLevel), tostring(s.top), tostring(s.level), s.you or "otro mapa",
+        s.route or 0, (s.segments or 0) + (s.moving or 0), s.dots or 0,
+        ((s.segments or 0) + (s.moving or 0)) > 0 and (s.shown and ", visibles" or ", NO visibles") or "",
+        ready, total, engine,
+        here and ("; el tuyo: " .. tostring(here.status) .. (here.reason and (" " .. here.reason) or "")) or "",
         s.err and (" | error: " .. s.err) or "")
 end
 
@@ -689,6 +1170,17 @@ ticker:SetScript("OnUpdate", function(_, elapsed)
     if sinceCheck >= 1 then
         sinceCheck = 0
         if ReachedLeg() then N.Replan() end
+        if not target then return end
+        -- Caminos a pie: pedir los que falten (o otro si te has apartado) y
+        -- llevar la flecha por el camino.
+        pcall(UpdateWalks, Player(hbd))
+        pcall(FollowArrow)
+    end
+    -- Tu sitio en el camino del tramo en que estás.
+    local here = Usable(target.here)
+    if here then
+        local px, py, pinst = Player(hbd)
+        if px and pinst == here.instance then pcall(Project, here, px, py) end
     end
     pcall(UpdateMinimap, hbd)
     -- Si el mapa grande falla, que no se lleve por delante lo demás: se
@@ -710,6 +1202,7 @@ end)
 
 function N.Clear(silent)
     RemoveWaypoint()
+    ForgetWalks()
     target = nil
     HideLines()
     ticker:Hide()
