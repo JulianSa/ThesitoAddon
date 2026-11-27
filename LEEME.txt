@@ -7,8 +7,8 @@ Una ventana con lo que necesitas mientras subes de nivel:
 - Bolsas: qué vender, tirar, desencantar o guardar según tus profesiones.
 - Misiones: qué hacer, dónde y dónde entregar, con rumbo en el mapa y el
   minimapa (zepelín, vuelo o a pie).
-- Importante: bolsas grandes, premios especiales al final de una cadena de
-  misiones (como el Saco de dormir acogedor), misiones de tu clase y
+- Importante: bolsas grandes, premios especiales (Saco de dormir acogedor,
+  tu primera montura del nivel 40, llaves de mazmorras...), misiones de tu clase y
   recompensas que mejoran tu equipo; si eres Sastre, también las bolsas que
   puedes coser.
 - Ventana de bolsas: sustituye a la del juego (tecla B) y enseña tus cosas por

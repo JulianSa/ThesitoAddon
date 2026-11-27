@@ -811,10 +811,37 @@ ns.ClassWeights = {
 }
 ns.UpgradeMargin = 2 -- puntos mínimos de mejora para recomendar algo
 
--- Premios especiales: objetos que merece la pena conseguir aunque no sean
--- bolsas ni equipo. La pestaña Importante busca la misión que los da y te
--- dice por dónde vas de su cadena y cuál es la siguiente.
--- [objeto] = nombre (por si el juego aún no lo ha cargado)
+-- Premios especiales: lo que merece la pena conseguir aunque no sea una
+-- bolsa ni equipo. La pestaña Importante busca la misión que lo da y te dice
+-- por dónde vas de su cadena y cuál es la siguiente. Salen hasta 10 niveles
+-- antes de poder cogerlas, para que las tengas en cuenta. Las de otra raza o
+-- facción no salen. Sacado de QuestieDB (Forever) y de Attune.
+-- Por objeto: [objeto] = { nombre (por si el juego aún no lo ha cargado), para qué }
 ns.NotableRewards = {
-    [211527] = "Saco de dormir acogedor", -- cadena de las notas: Peldaños, Revolver... (desde el nivel 14)
+    [211527] = { "Saco de dormir acogedor", "saco de dormir" },                          -- cadena de las notas: Peldaños, Revolver... (nivel 14)
+    [267089] = { "Llave del complejo Krol'dok", "llave de la mazmorra de Krol'dok" },      -- Key Ingredients (nivel 38)
+    [5396]   = { "Llave de la Garganta de Fuego", "abre la puerta de la Garganta de Fuego" }, -- At Last! (nivel 40)
+    [11000]  = { "Llave Forjatiniebla", "llave de las Profundidades de Roca Negra" },      -- Dark Iron Legacy (nivel 48)
+    [13704]  = { "Llave esqueleto", "llave de Scholomance" },                             -- The Key to Scholomance (nivel 55)
+    [12344]  = { "Sello de Ascensión", "llave de la parte alta de la Cumbre de Roca Negra" }, -- (nivel 55)
+    [16309]  = { "Amuleto Fuego de Draco", "para entrar en la Guarida de Onyxia" },       -- (nivel 50)
+}
+
+-- Por misión, cuando lo que da no es un objeto de la base de datos (las
+-- monturas de nivel 40 de Forever, una por raza):
+-- [misión] = { nombre del premio, para qué, icono }
+local MOUNT_ICON = "Interface\\Icons\\Ability_Mount_RidingHorse"
+ns.NotableQuests = {
+    [96997] = { "Tu primera montura", "caballo esquelético (no-muertos)", "Interface\\Icons\\Ability_Mount_Undeadhorse" },
+    [96994] = { "Tu primera montura", "lobo", "Interface\\Icons\\Ability_Mount_WhiteDireWolf" },
+    [96989] = { "Tu primera montura", "raptor", "Interface\\Icons\\Ability_Mount_Raptor" },
+    [96982] = { "Tu primera montura", "kodo", "Interface\\Icons\\Ability_Mount_Kodo_01" },
+    [97446] = { "Tu primera montura", "kodo", "Interface\\Icons\\Ability_Mount_Kodo_01" },
+    [97017] = { "Tu primera montura", "carnero", "Interface\\Icons\\Ability_Mount_MountainRam" },
+    [97045] = { "Tu primera montura", "caballo", MOUNT_ICON },
+    [97171] = { "Tu primera montura", "caballo", MOUNT_ICON },
+    [98166] = { "Tu primera montura", "caballo", MOUNT_ICON },
+    [99326] = { "Tu primera montura", "caballo", MOUNT_ICON },
+    [97046] = { "Tu primera montura", "mecazancudo", "Interface\\Icons\\Ability_Mount_MechaStrider" },
+    [95511] = { "Tu primera montura", "sable", "Interface\\Icons\\Ability_Mount_WhiteTiger" },
 }

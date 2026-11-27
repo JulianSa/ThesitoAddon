@@ -1,7 +1,8 @@
 -- Thesito Addon: misiones importantes para ti.
 --  · Misiones que dan bolsas de más de 10 casillas.
---  · Premios especiales al final de una cadena (ns.NotableRewards de
---    Data.lua, como el Saco de dormir acogedor): por dónde vas y la siguiente.
+--  · Premios especiales (ns.NotableRewards y ns.NotableQuests de Data.lua:
+--    Saco de dormir acogedor, primera montura, llaves...): por dónde vas de
+--    su cadena y cuál es la siguiente, hasta 10 niveles antes.
 --  · Misiones de tu clase que aún no has hecho.
 --  · Recompensas que mejoran lo que llevas puesto.
 -- Datos: QuestieDB. Sus objetos dicen qué misiones los dan; recorremos todos
@@ -18,6 +19,7 @@ local BAG_MIN_SLOTS = 10   -- "más de 10 casillas"
 local UPGRADE_BELOW = 4    -- misiones de hasta 4 niveles por debajo del tuyo
 local MAX_ABOVE = 3        -- y como mucho 3 niveles por encima
 local HARD_ABOVE = 6       -- mejoras "algo más difíciles": de 4 a 6 niveles por encima
+local PRIZE_AHEAD = 10     -- premios especiales: salen hasta 10 niveles antes de poder cogerlos
 
 local status = "idle"      -- idle | scanning | ready | nodb
 local progress = 0
@@ -536,28 +538,40 @@ function I.Lists()
         end
     end
 
-    -- Premios especiales (ns.NotableRewards de Data.lua): la misión que los
-    -- da, cuántas te faltan de su cadena y cuál es la siguiente.
-    for itemID, fallbackName in pairs(ns.NotableRewards or {}) do
+    -- Premios especiales (ns.NotableRewards y ns.NotableQuests de Data.lua):
+    -- la misión que los da, cuántas te faltan de su cadena y cuál es la
+    -- siguiente. Salen hasta PRIZE_AHEAD niveles antes, para tenerlos en cuenta.
+    local seenPrize = {}
+    local function AddPrize(q, prize)
+        if seenPrize[q] or not Available(db, q, me, profs) then return end
+        seenPrize[q] = true
+        local info = QuestInfo(db, q, me)
+        if info.minLevel > me.level + PRIZE_AHEAD then
+            out.later = out.later + 1
+            return
+        end
+        local chain = ChainTo(db, q, me, profs)
+        local nextQuest = chain[1] or q
+        for k, v in pairs(prize) do info[k] = v end
+        info.chain, info.nextQuest = chain, nextQuest
+        info.nextName = db.Quest.Get(nextQuest, "name") or ("Misión " .. nextQuest)
+        info.nextInLog = InLog(nextQuest)
+        info.nextStarter = Starter(db, nextQuest, me)
+        info.left = #chain + 1
+        out.prizes[#out.prizes + 1] = info
+    end
+    for itemID, data in pairs(ns.NotableRewards or {}) do
         local itemName = C_Item.GetItemNameByID and C_Item.GetItemNameByID(itemID)
         if not itemName then
             pending = true
             call(C_Item.RequestLoadItemDataByID, itemID)
         end
         for _, q in ipairs(db.Item.Get(itemID, "questRewards") or {}) do
-            if Available(db, q, me, profs) then
-                local info = QuestInfo(db, q, me)
-                local chain = ChainTo(db, q, me, profs)
-                local nextQuest = chain[1] or q
-                info.itemID, info.itemName, info.chain = itemID, itemName or fallbackName, chain
-                info.nextQuest = nextQuest
-                info.nextName = db.Quest.Get(nextQuest, "name") or ("Misión " .. nextQuest)
-                info.nextInLog = InLog(nextQuest)
-                info.nextStarter = Starter(db, nextQuest, me)
-                info.left = #chain + 1
-                Keep(out.prizes, info)
-            end
+            AddPrize(q, { itemID = itemID, itemName = itemName or data[1], why = data[2] })
         end
+    end
+    for q, data in pairs(ns.NotableQuests or {}) do
+        AddPrize(q, { itemName = data[1], why = data[2], icon = data[3] })
     end
 
     -- Misiones de tu clase (de tu nivel menos 5 en adelante).

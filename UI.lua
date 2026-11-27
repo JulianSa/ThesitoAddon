@@ -963,10 +963,14 @@ local function FillImportant()
         }
     end)
     -- Premios especiales al final de una cadena (Data.lua: ns.NotableRewards).
-    Section("|cffffd200Premios especiales (al final de una cadena de misiones)|r", "imp:premios", data.prizes,
-        "Ninguno pendiente que puedas hacer ahora.", function(info)
+    Section("|cffffd200Premios especiales|r |cff9d9d9d(llaves, monturas y más; también los de los próximos niveles)|r", "imp:premios", data.prizes,
+        "Ninguno pendiente para tu nivel.", function(info)
         local nextText = info.nextName .. (info.nextInLog and " (la llevas)" or "")
-        local tip = { ("«%s» se consigue con «%s»."):format(info.itemName, info.name) }
+        local tip = { ("«%s»%s se consigue con «%s»."):format(info.itemName,
+            info.why and (" (" .. info.why .. ")") or "", info.name) }
+        if info.minLevel > level then
+            tip[#tip + 1] = ("|cffff9933Todavía no: se coge desde el nivel %d.|r"):format(info.minLevel)
+        end
         if info.left > 1 then
             local names = {}
             for _, q in ipairs(info.chain) do
@@ -987,13 +991,22 @@ local function FillImportant()
         end
         tip[#tip + 1] = "Clic: ver la cadena entera y ponerle rumbo («Quién la da» te lleva a la siguiente)."
         tip[#tip + 1] = COLOR_HELP
+        local icon = info.icon
+        if info.itemID and C_Item.GetItemIconByID then icon = C_Item.GetItemIconByID(info.itemID) or icon end
+        local progress
+        if info.minLevel > level then
+            progress = ("|cff9d9d9ddesde nv %d|r"):format(info.minLevel)
+        elseif info.left > 1 then
+            progress = ("|cffffd200faltan %d|r  siguiente: %s"):format(info.left, nextText)
+        else
+            progress = "|cffffd200" .. (info.nextInLog and "la llevas" or "disponible") .. "|r"
+        end
         return {
-            icon = C_Item.GetItemIconByID and C_Item.GetItemIconByID(info.itemID), itemID = info.itemID,
-            name = info.itemName .. " |cff9d9d9d(" .. info.name .. ")|r",
+            icon = icon, itemID = info.itemID,
+            name = info.itemName .. " |cff9d9d9d(" .. (info.why or info.name) .. ")|r",
             tipTitle = info.itemName,
             tip = table.concat(tip, "\n"),
-            right = ("|cffffd200%s|r  siguiente: %s"):format(
-                info.left > 1 and ("faltan " .. info.left) or "la última", nextText),
+            right = progress,
         }
     end)
     -- Bolsas que puedes coser como Sastre (solo si este personaje es sastre).
