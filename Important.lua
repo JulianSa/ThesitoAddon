@@ -1,5 +1,7 @@
 -- Thesito Addon: misiones importantes para ti.
 --  · Misiones que dan bolsas de más de 10 casillas.
+--  · Premios especiales al final de una cadena (ns.NotableRewards de
+--    Data.lua, como el Saco de dormir acogedor): por dónde vas y la siguiente.
 --  · Misiones de tu clase que aún no has hecho.
 --  · Recompensas que mejoran lo que llevas puesto.
 -- Datos: QuestieDB. Sus objetos dicen qué misiones los dan; recorremos todos
@@ -334,6 +336,46 @@ local function QuestInfo(db, q, me)
     return info
 end
 
+-- Las misiones previas que te faltan para llegar a q, de la primera que
+-- tienes que hacer a la última (vacía si ya puedes cogerla). De varias
+-- alternativas, la que llevas o la de tu lado.
+local function ChainTo(db, q, me, profs)
+    local chain, seen, current = {}, { [q] = true }, q
+    for _ = 1, 15 do
+        local pre
+        local single = db.Quest.Get(current, "preQuestSingle")
+        if type(single) == "table" and #single > 0 then
+            local met = false
+            for _, p in ipairs(single) do
+                if Done(p) then met = true break end
+            end
+            if not met then
+                for _, p in ipairs(single) do
+                    if InLog(p) then pre = p break end
+                end
+                if not pre then
+                    for _, p in ipairs(single) do
+                        if Available(db, p, me, profs) then pre = p break end
+                    end
+                end
+                pre = pre or single[1]
+            end
+        end
+        if not pre then
+            local group = db.Quest.Get(current, "preQuestGroup")
+            for _, p in ipairs(type(group) == "table" and group or {}) do
+                if not Done(p) then pre = p break end
+            end
+        end
+        if not pre or seen[pre] then break end
+        seen[pre] = true
+        table.insert(chain, 1, pre)
+        if InLog(pre) then break end
+        current = pre
+    end
+    return chain
+end
+
 ---------------------------------------------------------------------------
 -- Comparar con tu equipo
 ---------------------------------------------------------------------------
@@ -456,7 +498,7 @@ function I.Lists()
     local me = Me()
     local profs = ns.Bags.Professions and ns.Bags.Professions() or {}
     pending = false
-    local out = { bags = {}, class = {}, upgrades = {}, upgradesHard = {}, later = 0, hard = 0 }
+    local out = { bags = {}, prizes = {}, class = {}, upgrades = {}, upgradesHard = {}, later = 0, hard = 0 }
 
     -- Solo las que puedes coger ya y no son demasiado difíciles (misión de
     -- más de 3 niveles por encima del tuyo); las demás solo se cuentan.
@@ -490,6 +532,30 @@ function I.Lists()
                     info.itemID, info.slots, info.kind = itemID, slots, kind
                     Keep(out.bags, info)
                 end
+            end
+        end
+    end
+
+    -- Premios especiales (ns.NotableRewards de Data.lua): la misión que los
+    -- da, cuántas te faltan de su cadena y cuál es la siguiente.
+    for itemID, fallbackName in pairs(ns.NotableRewards or {}) do
+        local itemName = C_Item.GetItemNameByID and C_Item.GetItemNameByID(itemID)
+        if not itemName then
+            pending = true
+            call(C_Item.RequestLoadItemDataByID, itemID)
+        end
+        for _, q in ipairs(db.Item.Get(itemID, "questRewards") or {}) do
+            if Available(db, q, me, profs) then
+                local info = QuestInfo(db, q, me)
+                local chain = ChainTo(db, q, me, profs)
+                local nextQuest = chain[1] or q
+                info.itemID, info.itemName, info.chain = itemID, itemName or fallbackName, chain
+                info.nextQuest = nextQuest
+                info.nextName = db.Quest.Get(nextQuest, "name") or ("Misión " .. nextQuest)
+                info.nextInLog = InLog(nextQuest)
+                info.nextStarter = Starter(db, nextQuest, me)
+                info.left = #chain + 1
+                Keep(out.prizes, info)
             end
         end
     end
@@ -532,6 +598,7 @@ function I.Lists()
         return a.name < b.name
     end
     table.sort(out.bags, byLevel)
+    table.sort(out.prizes, byLevel)
     table.sort(out.class, byLevel)
     local function byGain(a, b)
         if a.gain ~= b.gain then return a.gain > b.gain end

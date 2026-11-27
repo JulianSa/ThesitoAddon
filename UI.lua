@@ -962,6 +962,40 @@ local function FillImportant()
             right = ("|cff40e0d0%d casillas%s|r  %s"):format(info.slots, info.kind and (" · " .. info.kind) or "", QuestStatus(info, level)),
         }
     end)
+    -- Premios especiales al final de una cadena (Data.lua: ns.NotableRewards).
+    Section("|cffffd200Premios especiales (al final de una cadena de misiones)|r", "imp:premios", data.prizes,
+        "Ninguno pendiente que puedas hacer ahora.", function(info)
+        local nextText = info.nextName .. (info.nextInLog and " (la llevas)" or "")
+        local tip = { ("«%s» se consigue con «%s»."):format(info.itemName, info.name) }
+        if info.left > 1 then
+            local names = {}
+            for _, q in ipairs(info.chain) do
+                names[#names + 1] = "«" .. (ns.Quests.DB() and ns.Quests.DB().Quest.Get(q, "name") or q) .. "»"
+            end
+            names[#names + 1] = "«" .. info.name .. "»"
+            tip[#tip + 1] = ("Te faltan %d misiones: %s."):format(info.left, table.concat(names, ", "))
+        else
+            tip[#tip + 1] = "Es la última misión de la cadena."
+        end
+        local s = info.nextStarter
+        if info.nextInLog then
+            tip[#tip + 1] = ("La siguiente, «%s», ya la llevas en tu registro."):format(info.nextName)
+        elseif s and s.isItem then
+            tip[#tip + 1] = ("La siguiente, «%s», la empieza un objeto: %s."):format(info.nextName, s.name)
+        elseif s then
+            tip[#tip + 1] = ("La siguiente, «%s», se coge en: %s — %s"):format(info.nextName, s.name, ns.Quests.SpotText(s.spot))
+        end
+        tip[#tip + 1] = "Clic: ver la cadena entera y ponerle rumbo («Quién la da» te lleva a la siguiente)."
+        tip[#tip + 1] = COLOR_HELP
+        return {
+            icon = C_Item.GetItemIconByID and C_Item.GetItemIconByID(info.itemID), itemID = info.itemID,
+            name = info.itemName .. " |cff9d9d9d(" .. info.name .. ")|r",
+            tipTitle = info.itemName,
+            tip = table.concat(tip, "\n"),
+            right = ("|cffffd200%s|r  siguiente: %s"):format(
+                info.left > 1 and ("faltan " .. info.left) or "la última", nextText),
+        }
+    end)
     -- Bolsas que puedes coser como Sastre (solo si este personaje es sastre).
     local tailor, why = ns.Tailor.Bags()
     local tailorFolded = false

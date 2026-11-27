@@ -810,3 +810,11 @@ ns.ClassWeights = {
     },
 }
 ns.UpgradeMargin = 2 -- puntos mínimos de mejora para recomendar algo
+
+-- Premios especiales: objetos que merece la pena conseguir aunque no sean
+-- bolsas ni equipo. La pestaña Importante busca la misión que los da y te
+-- dice por dónde vas de su cadena y cuál es la siguiente.
+-- [objeto] = nombre (por si el juego aún no lo ha cargado)
+ns.NotableRewards = {
+    [211527] = "Saco de dormir acogedor", -- cadena de las notas: Peldaños, Revolver... (desde el nivel 14)
+}
