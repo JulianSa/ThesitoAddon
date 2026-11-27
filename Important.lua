@@ -178,18 +178,124 @@ local function Available(db, q, me, profs)
     return true
 end
 
--- Quién da la misión: { name, spot, isItem }
-local function Starter(db, q, me)
-    local starters = db.Quest.Get(q, "startedBy") or {}
-    for _, npc in ipairs(starters[1] or {}) do
-        local f = db.Npc.Get(npc, "friendlyToFaction")
-        if f == nil or f:find(me.faction, 1, true) then
-            return { name = db.Npc.Get(npc, "name") or "?", spot = ns.Quests.BestSpot(db.Npc.Get(npc, "spawns")) }
+---------------------------------------------------------------------------
+-- Dónde se coge o se entrega, en tu lado
+-- Algunas misiones las dan (o las reciben) varios PNJ u objetos: uno para la
+-- Horda y otro para la Alianza. Los objetos no dicen de qué facción son, así
+-- que lo deducimos de las otras misiones que dan o reciben y de dónde acaba
+-- la misión anterior de tu facción. Ejemplo: «Peldaños» la da un tablón en
+-- Los Baldíos a la Alianza y otro en Páramos de Poniente a la Horda.
+---------------------------------------------------------------------------
+
+local LOW32 = 2 ^ 32
+-- Razas de cada facción (bits bajos de la máscara de razas).
+local FACTION_RACES = { Horde = 2 + 16 + 32 + 128, Alliance = 1 + 4 + 8 + 64 }
+
+local function FactionMask(me)
+    local masks = LibQuestieDB and LibQuestieDB.Enum and LibQuestieDB.Enum.factionRaceMasks
+    local mask = masks and masks[UnitFactionGroup("player") or ""]
+    if type(mask) ~= "number" then mask = FACTION_RACES[UnitFactionGroup("player") or ""] or 0 end
+    return bit.bor(mask % LOW32, me.raceBit % LOW32)
+end
+
+-- ¿Es de tu facción? true sí, false es de la otra, nil es de las dos.
+local function ForMySide(db, q, me)
+    local races = db.Quest.Get(q, "requiredRaces")
+    if type(races) ~= "number" or races <= 0 then return nil end
+    return band(races % LOW32, me.factionMask) ~= 0
+end
+
+-- Zonas donde acaban las misiones anteriores de tu facción.
+local function PreviousZones(db, q, me)
+    local zones = {}
+    for _, key in ipairs({ "preQuestSingle", "preQuestGroup" }) do
+        local list = db.Quest.Get(q, key)
+        for _, p in ipairs(type(list) == "table" and list or {}) do
+            if ForMySide(db, p, me) ~= false then
+                local finished = db.Quest.Get(p, "finishedBy") or {}
+                for _, npc in ipairs(finished[1] or {}) do
+                    local z = db.Npc.Get(npc, "zoneID")
+                    if z then zones[z] = true end
+                end
+                for _, obj in ipairs(finished[2] or {}) do
+                    local z = db.Object.Get(obj, "zoneID")
+                    if z then zones[z] = true end
+                end
+            end
         end
     end
-    for _, obj in ipairs(starters[2] or {}) do
-        return { name = db.Object.Get(obj, "name") or "?", spot = ns.Quests.BestSpot(db.Object.Get(obj, "spawns")) }
+    return zones
+end
+
+-- PNJ y objetos que dan (field = "startedBy") o reciben ("finishedBy") una
+-- misión, los de tu lado primero y sin los de la otra facción si hay alguno
+-- tuyo. Devuelve { { npc = true|false, id = ... }, ... }.
+local function Places(db, q, field, me)
+    local data = db.Quest.Get(q, field)
+    if type(data) ~= "table" then return {} end
+    local list = {}
+    for i, key in ipairs({ 1, 2 }) do
+        local ids = data[key]
+        for _, id in ipairs(type(ids) == "table" and ids or {}) do
+            list[#list + 1] = { npc = (i == 1), id = id, order = #list + 1, score = 0 }
+        end
     end
+    if #list < 2 then return list end
+    me.factionMask = me.factionMask or FactionMask(me)
+    local zones = PreviousZones(db, q, me)
+    local anyHostile, anyFriendly, best = false, false, -math.huge
+    for _, p in ipairs(list) do
+        local store = p.npc and db.Npc or db.Object
+        if p.npc then
+            local f = db.Npc.Get(p.id, "friendlyToFaction")
+            p.hostile = type(f) == "string" and not f:find(me.faction, 1, true)
+        end
+        for _, key in ipairs({ "questStarts", "questEnds" }) do
+            local others = store.Get(p.id, key)
+            for _, other in ipairs(type(others) == "table" and others or {}) do
+                if other ~= q then
+                    local mine = ForMySide(db, other, me)
+                    if mine == true then p.score = p.score + 2 elseif mine == false then p.score = p.score - 1 end
+                end
+            end
+        end
+        if zones[store.Get(p.id, "zoneID") or 0] then p.score = p.score + 1 end
+        if p.hostile then anyHostile = true else anyFriendly = true end
+        if not p.hostile and p.score > best then best = p.score end
+    end
+    local out = {}
+    for _, p in ipairs(list) do
+        local keep = not (p.hostile and anyFriendly)
+        -- De la otra facción (solo tiene misiones suyas) habiendo otro mejor.
+        if keep and p.score < 0 and best >= 0 then keep = false end
+        if keep then out[#out + 1] = p end
+    end
+    table.sort(out, function(a, b)
+        if (a.hostile or false) ~= (b.hostile or false) then return not a.hostile end
+        if a.score ~= b.score then return a.score > b.score end
+        return a.order < b.order
+    end)
+    return out
+end
+
+function I.Places(q, field)
+    local db = ns.Quests.DB()
+    return db and Places(db, q, field, Me()) or {}
+end
+
+-- Quién da la misión: { name, spot, isItem }
+local function Starter(db, q, me)
+    for _, p in ipairs(Places(db, q, "startedBy", me)) do
+        if p.npc then
+            local f = db.Npc.Get(p.id, "friendlyToFaction")
+            if f == nil or f:find(me.faction, 1, true) then
+                return { name = db.Npc.Get(p.id, "name") or "?", spot = ns.Quests.BestSpot(db.Npc.Get(p.id, "spawns")) }
+            end
+        else
+            return { name = db.Object.Get(p.id, "name") or "?", spot = ns.Quests.BestSpot(db.Object.Get(p.id, "spawns")) }
+        end
+    end
+    local starters = db.Quest.Get(q, "startedBy") or {}
     for _, item in ipairs(starters[3] or {}) do
         return { name = (C_Item.GetItemNameByID and C_Item.GetItemNameByID(item)) or db.Item.Get(item, "name") or "un objeto", isItem = true }
     end

@@ -33,6 +33,14 @@ Clases con ruta de talentos y consejos de instructor: **todas** (guerrero, palad
 4. Abre el juego. En la pantalla de personajes pulsa **AddOns** y comprueba que **Thesito Addon** está marcado.
 5. Dentro del juego: botón del minimapa o escribe `/thesito`.
 
+### Que se actualice solo (WowUp)
+
+Con la app **[WowUp](https://wowup.io)** (Windows y Mac; en un Mac con procesador Intel, descarga su versión Intel) no tienes que volver a bajar el zip:
+
+1. Abre WowUp y elige arriba la instalación de **Forever**.
+2. Pulsa **Get Addons** → **Install from URL** y pega `https://github.com/JulianSa/ThesitoAddon`.
+3. Cada vez que salga una versión nueva, WowUp te la ofrece en *My Addons*, como el resto de tus addons.
+
 ### Addons recomendados
 
 Instálalos con la app de CurseForge eligiendo *World of Warcraft: Forever*:

@@ -460,25 +460,33 @@ function Q.Detail(questID)
     -- Entrega.
     if db then
         add("|cffffd200Dónde entregarla|r")
-        local finished = Get(db.Quest, questID, "finishedBy") or {}
-        local any = false
-        for _, npcID in ipairs(finished[1] or {}) do
-            local spot = BestSpot(Get(db.Npc, npcID, "spawns"), preferZone)
-            local name = Get(db.Npc, npcID, "name") or "?"
-            local role = Get(db.Npc, npcID, "subName")
-            add("• " .. name .. (role and (" |cff9d9d9d<" .. role .. ">|r") or ""))
-            add("    " .. SpotText(spot))
-            if not info.turnIn and spot and spot.x then
-                info.turnIn = { zone = spot.zone, x = spot.x, y = spot.y, title = "Entregar: " .. title .. " (" .. name .. ")" }
-            end
-            any = true
+        -- Los de tu facción primero (algunas se entregan en sitios distintos
+        -- para la Horda y la Alianza).
+        local places = ns.Important and ns.Important.Places and ns.Important.Places(questID, "finishedBy")
+        if not places then
+            places = {}
+            local finished = Get(db.Quest, questID, "finishedBy") or {}
+            for _, id in ipairs(finished[1] or {}) do places[#places + 1] = { npc = true, id = id } end
+            for _, id in ipairs(finished[2] or {}) do places[#places + 1] = { npc = false, id = id } end
         end
-        for _, objID in ipairs(finished[2] or {}) do
-            local spot = BestSpot(Get(db.Object, objID, "spawns"), preferZone)
-            add("• " .. (Get(db.Object, objID, "name") or "?"))
-            add("    " .. SpotText(spot))
-            if not info.turnIn and spot and spot.x then
-                info.turnIn = { zone = spot.zone, x = spot.x, y = spot.y, title = "Entregar: " .. title }
+        local any = false
+        for _, p in ipairs(places) do
+            if p.npc then
+                local spot = BestSpot(Get(db.Npc, p.id, "spawns"), preferZone)
+                local name = Get(db.Npc, p.id, "name") or "?"
+                local role = Get(db.Npc, p.id, "subName")
+                add("• " .. name .. (role and (" |cff9d9d9d<" .. role .. ">|r") or ""))
+                add("    " .. SpotText(spot))
+                if not info.turnIn and spot and spot.x then
+                    info.turnIn = { zone = spot.zone, x = spot.x, y = spot.y, title = "Entregar: " .. title .. " (" .. name .. ")" }
+                end
+            else
+                local spot = BestSpot(Get(db.Object, p.id, "spawns"), preferZone)
+                add("• " .. (Get(db.Object, p.id, "name") or "?"))
+                add("    " .. SpotText(spot))
+                if not info.turnIn and spot and spot.x then
+                    info.turnIn = { zone = spot.zone, x = spot.x, y = spot.y, title = "Entregar: " .. title }
+                end
             end
             any = true
         end

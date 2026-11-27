@@ -34,6 +34,12 @@ INSTALAR
    que "Thesito Addon" está marcado.
 4. Ya dentro: botón redondo del minimapa o escribe /thesito
 
+Para que se actualice solo: instala la app WowUp (wowup.io; en un Mac con
+procesador Intel, su versión Intel), elige arriba la instalación de Forever,
+pulsa "Get Addons" > "Install from URL" y pega:
+      https://github.com/JulianSa/ThesitoAddon
+WowUp te avisará y lo actualizará cada vez que salga una versión nueva.
+
 
 ADDONS QUE NECESITA
 -------------------
