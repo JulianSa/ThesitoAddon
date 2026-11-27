@@ -57,5 +57,6 @@ COMANDOS
 /thesito                 abrir o cerrar la ventana
 /thesito talentos        (también: instructor, bolsas, misiones, importante, creditos)
 /thesito quitar          quitar el rumbo del mapa
+/thesito mapa            por qué no se ve la ruta en el mapa grande (si pasa)
 /thesito centrar         volver a poner la ventana en el centro
 /thesito debug           datos para revisar si algo falla

@@ -180,6 +180,8 @@ SlashCmdList.THESITOADDON = function(msg)
         end
     elseif msg == "rumbo" or msg == "quitar" then
         ns.Nav.Clear()
+    elseif msg == "mapa" then
+        ns.Print("ruta en el mapa: " .. ns.Nav.MapReport())
     elseif msg == "ordenar" then
         ns.Bags.Sort()
     elseif msg == "liberar" then
@@ -234,6 +236,7 @@ function ns.Debug()
     for _ in pairs(ns.db.trainer) do count = count + 1 end
     Out(("instructor: %d hechizos guardados."):format(count))
     if ns.db.trainerRaw then Out("primer hechizo leído (crudo): " .. ns.db.trainerRaw) end
+    if ns.Nav and ns.Nav.MapReport then Out("ruta en el mapa: " .. ns.Nav.MapReport()) end
     -- Detalle que no se escribe en el chat (no cabría): solo se guarda.
     if ns.Bags and ns.Bags.DebugLines then
         for _, line in ipairs(ns.Bags.DebugLines()) do saved[#saved + 1] = line end

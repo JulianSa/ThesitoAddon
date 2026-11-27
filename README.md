@@ -64,6 +64,7 @@ Sin ellos el addon funciona, pero esas partes avisan de que faltan.
 | `/thesito ordenar` | Ordena las bolsas por grupos |
 | `/thesito liberar` | Borra o vende lo que menos vale de «Para vender o tirar» (pregunta antes) |
 | `/thesito quitar` | Quita el rumbo del mapa |
+| `/thesito mapa` | Si la ruta no se ve en el mapa grande, dice por qué |
 | `/thesito centrar` | Vuelve a poner la ventana en el centro |
 | `/thesito debug` | Datos para revisar si algo falla |
 

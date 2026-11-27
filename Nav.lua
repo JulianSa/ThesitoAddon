@@ -449,7 +449,11 @@ end
 ---------------------------------------------------------------------------
 
 local miniLine, miniDot, mapHolder
-local mapLines, mapDots = {}, {}   -- tramos y paradas de la ruta en el mapa del mundo
+-- Tramos (borde oscuro y color) y paradas de la ruta en el mapa del mundo.
+local mapEdges, mapLines, mapDots = {}, {}, {}
+-- Lo último que pasó al dibujar en el mapa del mundo (para /thesito mapa).
+local mapState = {}
+local mapErrorShown = false
 
 local function MakeMinimapParts()
     if miniLine or not Minimap then return end
@@ -464,6 +468,7 @@ local function MakeMinimapParts()
 end
 
 local function HideMapRoute()
+    for _, edge in ipairs(mapEdges) do edge:Hide() end
     for _, line in ipairs(mapLines) do line:Hide() end
     for _, dot in ipairs(mapDots) do dot:Hide() end
 end
@@ -519,7 +524,12 @@ local function UpdateMinimap(hbd)
 end
 
 local function WorldCanvas()
-    return WorldMapFrame and WorldMapFrame.ScrollContainer and WorldMapFrame.ScrollContainer.Child
+    if not WorldMapFrame then return nil end
+    if WorldMapFrame.GetCanvas then
+        local canvas = call(WorldMapFrame.GetCanvas, WorldMapFrame)
+        if canvas then return canvas end
+    end
+    return WorldMapFrame.ScrollContainer and WorldMapFrame.ScrollContainer.Child
 end
 
 -- Punto del mundo -> posición en el mapa que estás mirando (teniendo en
@@ -531,74 +541,131 @@ local function OnMap(hbd, x, y, instance, mapID)
     return call(hbd.GetZoneCoordinatesFromWorld, hbd, x, y, mapID, true)
 end
 
-local function DrawMapLine(line, canvas, ax, ay, bx, by, thickness)
-    local w, h = canvas:GetWidth(), canvas:GetHeight()
-    line:SetThickness(thickness)
-    line:SetStartPoint("TOPLEFT", canvas, ax * w, -ay * h)
-    line:SetEndPoint("TOPLEFT", canvas, bx * w, -by * h)
-    line:Show()
-end
+-- En el mapa del mundo los tramos son texturas normales deformadas (se
+-- mueven sus cuatro esquinas), no objetos «línea»: así es como dibuja
+-- Questie sus rutas en el mapa de Forever, y las líneas no se veían.
+local WHITE = "Interface\\Buttons\\WHITE8x8"
+local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 
-local function MapLine(i)
-    if not mapLines[i] then mapLines[i] = mapHolder:CreateLine(nil, "OVERLAY") end
-    return mapLines[i]
-end
-
-local function MapDot(i)
-    local dot = mapDots[i]
-    if not dot then
-        dot = mapHolder:CreateTexture(nil, "OVERLAY", nil, 7)
-        dot:SetTexture("Interface\\Buttons\\WHITE8x8")
-        mapDots[i] = dot
+local function MapTexture(pool, i, layer, sublevel, file)
+    local tex = pool[i]
+    if not tex then
+        tex = mapHolder:CreateTexture(nil, layer, nil, sublevel)
+        tex:SetTexture(file)
+        if tex.SetSnapToPixelGrid then tex:SetSnapToPixelGrid(false) end
+        if tex.SetTexelSnappingBias then tex:SetTexelSnappingBias(0) end
+        pool[i] = tex
     end
-    return dot
+    return tex
+end
+
+-- Un tramo de «width» unidades del mapa de ancho, de (x1, y1) a (x2, y2)
+-- (unidades del mapa, y hacia abajo). La textura ocupa la caja del tramo y
+-- sus esquinas se mueven a las del tramo inclinado.
+local function DrawSegment(tex, x1, y1, x2, y2, width)
+    local dx, dy = x2 - x1, y2 - y1
+    local len = math.sqrt(dx * dx + dy * dy)
+    if len < 0.01 then
+        tex:Hide()
+        return false
+    end
+    local nx, ny = dy / len * width / 2, -dx / len * width / 2
+    local slx, sly, srx, sry = x1 + nx, y1 + ny, x1 - nx, y1 - ny   -- inicio: izquierda, derecha
+    local elx, ely, erx, ery = x2 + nx, y2 + ny, x2 - nx, y2 - ny   -- final: izquierda, derecha
+    local minX, maxX = math.min(slx, srx, elx, erx), math.max(slx, srx, elx, erx)
+    local minY, maxY = math.min(sly, sry, ely, ery), math.max(sly, sry, ely, ery)
+    tex:ClearAllPoints()
+    tex:SetPoint("TOPLEFT", mapHolder, "TOPLEFT", minX, -minY)
+    tex:SetPoint("BOTTOMRIGHT", mapHolder, "TOPLEFT", maxX, -maxY)
+    tex:SetVertexOffset(UPPER_LEFT_VERTEX or 1, slx - minX, minY - sly)
+    tex:SetVertexOffset(UPPER_RIGHT_VERTEX or 3, elx - maxX, minY - ely)
+    tex:SetVertexOffset(LOWER_LEFT_VERTEX or 2, srx - minX, maxY - sry)
+    tex:SetVertexOffset(LOWER_RIGHT_VERTEX or 4, erx - maxX, maxY - ery)
+    tex:Show()
+    return true
+end
+
+local function DrawDot(tex, x, y, size, r, g, b, a)
+    tex:SetSize(size, size)
+    tex:SetVertexColor(r, g, b, a)
+    tex:ClearAllPoints()
+    tex:SetPoint("CENTER", mapHolder, "TOPLEFT", x, -y)
+    tex:Show()
 end
 
 -- La ruta entera: de ti a cada parada y al destino, cada tramo de su color
--- (morado a pie, dorado en vuelo, azul en zepelín o barco) y un punto en
--- cada parada. Los tramos de otro continente no salen en este mapa.
+-- (morado a pie, dorado en vuelo, azul en zepelín o barco) con un borde
+-- oscuro, y un punto blanco en cada parada. Los tramos de otro continente
+-- no salen en este mapa.
 local function UpdateWorldMap(hbd)
     local canvas = WorldCanvas()
     if not (canvas and WorldMapFrame:IsShown()) then
         HideMapRoute()
         return
     end
-    if not mapHolder then
-        mapHolder = CreateFrame("Frame", nil, canvas)
+    if not mapHolder or mapHolder:GetParent() ~= canvas then
+        mapHolder = mapHolder or CreateFrame("Frame", nil, canvas)
+        mapHolder:SetParent(canvas)
+        mapHolder:ClearAllPoints()
         mapHolder:SetAllPoints(canvas)
-        mapHolder:SetFrameLevel(canvas:GetFrameLevel() + 2000)
     end
+    -- Encima del dibujo del mapa y justo debajo de los iconos de Questie.
+    local level = canvas:GetFrameLevel() + 15
+    if mapHolder:GetFrameLevel() ~= level then mapHolder:SetFrameLevel(level) end
+    mapHolder:Show()
     HideMapRoute()
+
     local mapID = WorldMapFrame.GetMapID and WorldMapFrame:GetMapID()
+    if issecretvalue and mapID and issecretvalue(mapID) then mapID = nil end
     local px, py, instance = Player(hbd)
-    if not (mapID and px and target.wx) then return end
     local scale = canvas:GetScale() or 1
     local w, h = canvas:GetWidth(), canvas:GetHeight()
+    local s = mapState
+    s.when, s.mapID, s.w, s.h, s.scale = GetTime(), mapID, w, h, scale
+    s.canvasLevel, s.level, s.segments, s.dots, s.you, s.err = canvas:GetFrameLevel(), level, 0, 0, nil, nil
+    s.route = target.route and #target.route or 0
+    if not (mapID and px and target.wx) then return end
     local route = target.route or { { wx = target.wx, wy = target.wy, instance = target.instance, how = "walk" } }
 
     local ax, ay = OnMap(hbd, px, py, instance, mapID)
-    local lines, dots = 0, 0
+    if ax then s.you = ("%.2f, %.2f"):format(ax, ay) end
+    local segments, dots = 0, 0
     for i, p in ipairs(route) do
         local bx, by = OnMap(hbd, p.wx, p.wy, p.instance, mapID)
         if ax and bx then
             local c = ROUTE_COLORS[p.how] or ROUTE_COLORS.walk
-            lines = lines + 1
-            local line = MapLine(lines)
-            line:SetColorTexture(c[1], c[2], c[3], c[4])
-            DrawMapLine(line, canvas, ax, ay, bx, by, math.max(i == 1 and 2 or 1.5, (i == 1 and 4 or 3) / scale))
+            local width = (i == 1 and 4 or 3) / scale
+            segments = segments + 1
+            local edge = MapTexture(mapEdges, segments, "ARTWORK", 0, WHITE)
+            edge:SetVertexColor(0, 0, 0, 0.6)
+            DrawSegment(edge, ax * w, ay * h, bx * w, by * h, width + 2 / scale)
+            local line = MapTexture(mapLines, segments, "OVERLAY", 0, WHITE)
+            line:SetVertexColor(c[1], c[2], c[3], 1)
+            DrawSegment(line, ax * w, ay * h, bx * w, by * h, width)
         end
         if bx and p.stop then
             dots = dots + 1
-            local dot = MapDot(dots)
-            local size = math.max(5, 9 / scale)
-            dot:SetSize(size, size)
-            dot:SetVertexColor(1, 1, 1, 0.95)
-            dot:ClearAllPoints()
-            dot:SetPoint("CENTER", canvas, "TOPLEFT", bx * w, -by * h)
-            dot:Show()
+            local size = 10 / scale
+            DrawDot(MapTexture(mapDots, dots * 2 - 1, "OVERLAY", 6, DISC), bx * w, by * h, size + 3 / scale, 0, 0, 0, 0.8)
+            DrawDot(MapTexture(mapDots, dots * 2, "OVERLAY", 7, DISC), bx * w, by * h, size, 1, 1, 1, 1)
         end
         ax, ay = bx, by
     end
+    s.segments, s.dots = segments, dots
+    s.shown = mapLines[1] and mapLines[1]:IsVisible() or false
+end
+
+-- /thesito mapa: qué pasó la última vez que se dibujó la ruta en el mapa.
+function N.MapReport()
+    if not target then return "no tienes ningún rumbo puesto." end
+    local s = mapState
+    if not s.when then return "abre el mapa (M) con el rumbo puesto y vuelve a escribir /thesito mapa." end
+    return ("hace %d s: mapa %s, lienzo %dx%d, escala %.2f, nivel %s/%s; tú en %s; %d paradas, %d tramos y %d puntos dibujados%s%s."):format(
+        GetTime() - s.when, tostring(s.mapID), s.w or 0, s.h or 0, s.scale or 0,
+        tostring(s.canvasLevel), tostring(s.level), s.you or "otro mapa",
+        s.route or 0, s.segments or 0, s.dots or 0,
+        s.segments and s.segments > 0 and (s.shown and ", visibles" or ", NO visibles") or "",
+        s.err and (" | error: " .. s.err) or "")
 end
 
 -- ¿Has llegado a la parada a la que ibas? Entonces toca el siguiente paso.
@@ -623,8 +690,18 @@ ticker:SetScript("OnUpdate", function(_, elapsed)
         sinceCheck = 0
         if ReachedLeg() then N.Replan() end
     end
-    UpdateMinimap(hbd)
-    UpdateWorldMap(hbd)
+    pcall(UpdateMinimap, hbd)
+    -- Si el mapa grande falla, que no se lleve por delante lo demás: se
+    -- apunta el error para /thesito mapa y se avisa una sola vez.
+    local ok, err = pcall(UpdateWorldMap, hbd)
+    if not ok then
+        mapState.err = tostring(err)
+        pcall(HideMapRoute)
+        if not mapErrorShown then
+            mapErrorShown = true
+            ns.Print("no he podido dibujar la ruta en el mapa grande; escribe /thesito mapa para ver por qué.")
+        end
+    end
 end)
 
 ---------------------------------------------------------------------------
